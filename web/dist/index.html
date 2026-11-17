@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-6M+79+HWLFrS5hg78Ehb02AWuemFD7upl/oY86Soduo='; style-src 'sha256-cXiw2zCnQrjO4xjCMbP7i3uvyn1XnUhYKzhrBvSJqqw='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-6DVBmAyZgYf5IM51bTSzHznv9dZ2YO91J1RKW9fXoTA='; style-src 'sha256-cXiw2zCnQrjO4xjCMbP7i3uvyn1XnUhYKzhrBvSJqqw='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -4547,8 +4547,8 @@ function rules({ limit } = {}) {
     },
     {
       id: "allowance",
-      title: "허락 한도는 내가 정하고, 쓴 만큼 줄어듭니다",
-      text: "허락 한도는 계약이 이 종이지갑에서 꺼낼 수 있는 MOVN 을 모두 합친 양입니다. 켤 때 내가 정합니다. 바꿀 때마다 그만큼 줄고, 다 쓰면 자동 바꾸기가 멈춥니다. 더 바꾸려면 다시 허락합니다.",
+      title: "MOVN 허락은 한도 없이(무제한) 하고, 언제든 거둘 수 있습니다",
+      text: "허락 한도는 계약이 이 종이지갑에서 꺼낼 수 있는 MOVN 을 모두 합친 양입니다. 켤 때 한도 없이 허락해서, 다음 달부터 들어오는 이자도 다시 허락하지 않고 바뀝니다. 그래도 한 번에 정해진 양까지만 꺼내고, 원금 WBMB 는 꺼낼 수 없습니다. '허락 거두기'로 언제든 0 으로 되돌릴 수 있습니다.",
     },
     {
       id: "no-owner",
@@ -4582,32 +4582,12 @@ function fees() {
   };
 }
 
-/** The example of "a large number" the page shows; an example, not a default. */
+/** The large number the guide names for the wallet app's amount box, when it shows less than "no limit". */
 const ALLOWANCE_BIG_EXAMPLE = "1000000";
 
 /**
- * What the allowance number does, so the person can pick it: nothing here says
- * which number is right.
- * @param {{limit?: bigint}} [o]
- * @returns {string[]}
- */
-function allowanceWhy({ limit } = {}) {
-  const max = roundOf(limit);
-  const round = max === K.UINT96_MAX ? "쌓인 만큼" : `한 번에 최대 ${fmtMovn(max)} MOVN 씩`;
-  return [
-    "이 숫자가 '허락 한도'입니다. 계약은 이 종이지갑에서 모두 합쳐 이만큼까지만 MOVN 을 꺼내 WBMB 로 바꿉니다.",
-    `켜 두면 이자가 쌓일 때마다 하루 한 번, ${round}, 이 한도를 다 쓸 때까지 바꿉니다.`,
-    "한도를 다 쓰면 멈춥니다. 더 바꾸고 싶으면 그때 다시 허락하면 됩니다(서명 한 번 · 가스 조금).",
-    "작게 정하면 그만큼만 바뀌고 멈춥니다. 예: 이번 달 이자만큼 정하면 이번 달만 바뀝니다.",
-    "크게 정하면 다음 달부터 들어오는 이자도 다시 허락하지 않고 계속 바뀝니다. 지갑 앱은 큰 숫자에 경고를 띄웁니다.",
-    `무제한으로 하시려면 큰 숫자를 넣어 주세요(예: ${ALLOWANCE_BIG_EXAMPLE}). 앞으로 바꿀 양보다 넉넉하면 다 쓸 일이 없습니다.`,
-    "얼마로 정하든 원금 WBMB 는 꺼낼 수 없고, '허락 거두기'로 언제든 0 으로 되돌릴 수 있습니다.",
-  ];
-}
-
-/**
- * What to do in the wallet app's signing window for the chosen allowance, in order.
- * @param {{amount: bigint}} o the chosen amount (the token's maximum for "no limit")
+ * What to do in the wallet app's signing window for the allowance asked, in order.
+ * @param {{amount: bigint}} o the amount asked (the token's maximum for "no limit")
  * @returns {string[]}
  */
 function approveGuide({ amount } = {}) {
@@ -4616,14 +4596,14 @@ function approveGuide({ amount } = {}) {
     "Trust Wallet 의 서명 창에 '금액' 칸이 나옵니다. 그 칸의 숫자가 실제 허락 한도가 됩니다.",
     "지갑이 그 칸에 다른 숫자(지금 쌓인 이자만큼)를 적어 보여 줄 수 있습니다.",
     noLimit
-      ? "한도 없이 하려면 금액 칸에 앞으로 바꿀 양보다 넉넉한 숫자를 직접 적어야 합니다. 그대로 두면 칸에 적힌 만큼만 허락됩니다."
+      ? `그대로 두면 칸에 적힌 만큼(지금 쌓인 이자)만 허락되어, 그만큼 바뀐 뒤 멈춥니다. 다음 달에도 계속 바뀌게 하려면 칸에 큰 숫자를 적으세요(예: ${ALLOWANCE_BIG_EXAMPLE}).`
       : `금액 칸의 숫자가 ${fmtMovn(amount)} 인지 보고, 다르면 그 숫자로 고쳐 적으세요.`,
     "숫자를 올려 적으면 지갑이 빨간 경고를 한 번 더 띄울 수 있습니다. 올려 적을 때마다 뜨는 경고입니다.",
     "서명한 뒤 이 페이지가 실제로 들어간 한도를 체인에서 읽어 알려 드립니다.",
   ];
 }
 
-return { rules, fees, ALLOWANCE_BIG_EXAMPLE, allowanceWhy, approveGuide };
+return { rules, fees, ALLOWANCE_BIG_EXAMPLE, approveGuide };
 })();
 __m["web/src/lib/describe.mjs"] = (() => {
 // "이 거래가 하는 일": what a prepared transaction does, in plain Korean, before
@@ -4680,7 +4660,7 @@ function linesOf(kind, { chain, card, args, extra }) {
         `부르는 곳: MOVN 토큰 ${chain.movn}`,
         `함수: approve(${chain.contract}, ${allowanceText(args?.[1])})`,
         "뜻: 이 계약이 종이지갑의 MOVN 을 모두 합쳐 이만큼까지 꺼내 바꿀 수 있게 합니다. 원금 WBMB 는 계약이 꺼낼 길이 없습니다.",
-        "지갑 앱의 서명 창에 있는 금액 칸의 숫자가 실제 한도가 됩니다. 정한 양과 같은지 서명 전에 보세요.",
+        "지갑 앱의 서명 창에 있는 금액 칸의 숫자가 실제 한도가 됩니다. 그대로 두면 칸에 적힌 만큼만 허락됩니다.",
       ];
     case "approve-zero":
       return [`함수: approve(${chain.contract}, 0)`, "뜻: 이 뒤로 계약은 종이지갑의 MOVN 을 꺼내지 못합니다."];
@@ -5712,14 +5692,14 @@ const { stallState } = __m["web/src/lib/stall.mjs"];
 const { ownerView } = __m["web/src/lib/view-owner.mjs"];
 const { planRegister, registerDirect } = __m["web/src/lib/register.mjs"];
 const { approveEnough } = __m["web/src/lib/approve.mjs"];
-const { ALLOWANCE_BIG_EXAMPLE, allowanceWhy, approveGuide, fees, rules } = __m["web/src/lib/rules.mjs"];
+const { approveGuide, fees, rules } = __m["web/src/lib/rules.mjs"];
 const { describeCall } = __m["web/src/lib/describe.mjs"];
 const { CHANGE_GAS_MAX, approveCall, harvestSelfCall, prepareCall, setHarvesterCall, setRecipientCall, unregisterCall } = __m["web/src/lib/txs.mjs"];
 const { walletSender } = __m["web/src/lib/send.mjs"];
 const { connectWallet, walletAccounts, describeWallets, findWallet, hasOtherWallet, isUserRejection, TRUST_INSTALL_LINK, trustOpenLink, watchWallets } = __m["web/src/lib/wallet.mjs"];
 const { createWcWallet, trustWcLink, WC_PROJECT_ID } = __m["web/src/lib/wc.mjs"];
 const { forAddressStep, looksLikeKey, parseAddressText, parseQrText, KEY_REFUSED_MESSAGE } = __m["web/src/lib/qr-text.mjs"];
-const { forbiddenRecipients, parseAllowance } = __m["web/src/lib/inputs.mjs"];
+const { forbiddenRecipients } = __m["web/src/lib/inputs.mjs"];
 const { postApplication, readAdvance, readBoxConfig, readPageConfig } = __m["web/src/lib/box.mjs"];
 const { harvestFloor } = __m["web/src/lib/floor.mjs"];
 const { pageFingerprint } = __m["web/src/lib/fingerprint.mjs"];
@@ -5750,7 +5730,7 @@ const LABELS = {
   recipient: "받는 지갑 바꾸기",
   unregister: "자동 바꾸기 끄기",
   revoke: "허락 거두기",
-  approve: "허락 한도 바꾸기",
+  approve: "다시 허락하기 (무제한)",
 };
 /** How long the page waits before reading a paper wallet once more after every node dropped the read. */
 const RELOAD_AFTER_MS = 1500;
@@ -5760,7 +5740,7 @@ const SETTINGS = ["approve", "revoke"];
 
 // What each transaction means to the person, before the exact lines.
 const PLAIN = {
-  "approve-max": "종이지갑의 이자(MOVN)를 계약이 WBMB 로 바꿀 수 있게 허락합니다. 정한 한도만큼만 바뀌고, 다 쓰면 멈춥니다. 원금 WBMB 는 계약이 꺼낼 길이 없습니다.",
+  "approve-max": "종이지갑의 이자(MOVN)를 계약이 WBMB 로 바꿀 수 있게 허락합니다. 한도 없이(무제한) 허락해서 다음 달 이자도 다시 허락하지 않고 바뀝니다. 원금 WBMB 는 계약이 꺼낼 길이 없고, '허락 거두기'로 언제든 0 으로 되돌릴 수 있습니다.",
   "approve-zero": "허락을 거둡니다. 이 뒤로 계약은 종이지갑의 MOVN 을 꺼내지 못합니다.",
   register: "자동 바꾸기를 켭니다. 지금 쌓여 있는 이자도 이 거래에서 바로 WBMB 로 바뀝니다.",
   setRecipient: "바뀐 WBMB 를 받을 지갑을 바꿉니다.",
@@ -5967,58 +5947,17 @@ function mountOwner(doc, deps = {}) {
     );
   }
 
-  /** What to check in the wallet's signing window for the chosen allowance. */
+  /** What to check in the wallet's signing window for the allowance asked (no limit, or what an earlier screen set). */
   function approveGuidePanel(amount) {
     const noLimit = amount === undefined || amount === null || amount >= MaxUint256 / 2n;
     return e(
       "div",
       { class: "panel", role: "approve-guide" },
-      e("p", { class: "label", text: "내가 정한 허락 한도" }),
-      e("p", { class: "num big", role: "approve-ask", text: noLimit ? "한도 없음" : `${fmtMovn(amount)} MOVN` }),
+      e("p", { class: "label", text: "허락할 한도" }),
+      e("p", { class: "num big", role: "approve-ask", text: noLimit ? "한도 없음 (무제한)" : `${fmtMovn(amount)} MOVN` }),
       e("p", { class: "label", text: "Trust Wallet 서명 창에서 볼 것" }),
       e("ol", { class: "rules" }, ...approveGuide({ amount }).map((line) => e("li", {}, e("span", { class: "small", text: line })))),
     );
-  }
-
-  /**
-   * "How much MOVN in all?" — the person's own choice, with what the number does.
-   * The two examples only fill the box. Answers the amount, "keep" (leave the
-   * allowance as it is; offered when the next round fits) or null.
-   */
-  function askAllowance({ state, take }) {
-    const canKeep = state.allowance > 0n && state.allowance >= take;
-    return ask((finish) => {
-      const input = e("input", { type: "text", role: "allowance-input", placeholder: "MOVN 숫자" });
-      const message = e("p", { class: "error", role: "allowance-message" });
-      const fill = (text) => {
-        input.value = text;
-        message.textContent = "";
-      };
-      screen([
-        art(doc, "ill-limit", "hero wide"),
-        e("h2", { role: "allowance-title", text: "모두 합쳐 몇 MOVN 까지 바꿀까요?" }),
-        e("p", { class: "panel", role: "allowance-now", text: `지금 쌓인 이자: ${fmtMovn(state.movn)} MOVN · 지금 허락 한도: ${fmtAllowance(state.allowance)}` }),
-        e("div", { class: "panel", role: "allowance-why" }, e("p", { class: "label", text: "이 숫자가 하는 일" }), e("ol", { class: "rules" }, ...allowanceWhy({ limit: st.roundLimit }).map((line) => e("li", {}, e("span", { class: "small", text: line }))))),
-        input,
-        e("p", { class: "label", text: "예시 — 누르면 칸에 적힙니다. 고쳐 써도 됩니다." }),
-        state.movn >= MOVN ? button("fill-now", `이번에 쌓인 만큼만: ${fmtMovn(state.movn)}`, () => fill(fmtMovn(state.movn)), { plain: true }) : null,
-        button("fill-big", `무제한으로: 큰 숫자 ${ALLOWANCE_BIG_EXAMPLE}`, () => fill(ALLOWANCE_BIG_EXAMPLE), { plain: true }),
-        message,
-        button("next", "이 양으로 정하기", () => {
-          const parsed = parseAllowance(input.value, { min: take });
-          if (!parsed.ok) {
-            message.textContent =
-              parsed.reason === "below-min"
-                ? `${fmtMovn(take > MOVN ? take : MOVN)} MOVN 이상이어야 합니다(지금 바꿀 양보다 작으면 바뀌지 않습니다).`
-                : "숫자만 넣어 주세요. 예: 2 또는 1000000";
-            return;
-          }
-          finish(parsed.wei);
-        }, { strong: true }),
-        canKeep ? button("keep", `지금 한도 그대로 두기 (${fmtAllowance(state.allowance)})`, () => finish("keep")) : null,
-        button("cancel", "그만두기", () => finish(null), { plain: true }),
-      ]);
-    });
   }
 
   function verifyPanel() {
@@ -6192,7 +6131,7 @@ function mountOwner(doc, deps = {}) {
         wc && !hasWallet
           ? stepRow("st-open", "② 이 페이지에서 지갑 연결 누르기", "이 페이지를 즐겨찾기에 넣어 두면 가짜 페이지를 피합니다. 연결하면 내 종이지갑이 바로 나옵니다.")
           : stepRow("st-open", "② 앱 안의 브라우저로 이 페이지 열기", "즐겨찾기에 넣어 두면 가짜 페이지를 피합니다. 열면 내 종이지갑이 바로 나옵니다."),
-        stepRow("st-on", "③ 자동 바꾸기 켜기", "모두 합쳐 얼마까지 바꿀지(허락 한도) 내가 정해서 켭니다."),
+        stepRow("st-on", "③ 자동 바꾸기 켜기", "MOVN 허락(무제한)과 등록, 서명 두 번으로 켭니다."),
       ),
       feeBox(),
       rulesPanel({ open: true }),
@@ -6569,16 +6508,16 @@ function mountOwner(doc, deps = {}) {
   }
 
   const pageSender = () => ({ address: st.card, kind: "page", send: (prepared) => sendPrepared(prepared) });
-  const fmtAllowance = (allowance) => (allowance >= MaxUint256 / 2n ? "한도 없음" : `${fmtMovn(allowance)} MOVN`);
+  const fmtAllowance = (allowance) => (allowance >= MaxUint256 / 2n ? "한도 없음 (무제한)" : `${fmtMovn(allowance)} MOVN`);
 
-  /** Less landed on the chain than the person chose: say both numbers, and let them decide. */
+  /** Less landed on the chain than the page asked (the wallet app's amount box): say both numbers, and let them decide. */
   function shortAllowanceScreen({ allowance, take, amount, kind }) {
     const rounds = take > 0n ? allowance / take : null;
     return ask((finish) => {
       screen([
         art(doc, "ill-pause", "hero wide"),
-        e("h2", { role: "short-title", text: "들어간 허락 한도가 정한 것과 다릅니다" }),
-        e("p", { class: "panel", role: "short-allowance", text: `정한 한도: ${fmtAllowance(amount)} · 실제로 들어간 한도: ${fmtMovn(allowance)} MOVN` }),
+        e("h2", { role: "short-title", text: "들어간 허락 한도가 요청한 것과 다릅니다" }),
+        e("p", { class: "panel", role: "short-allowance", text: `요청한 한도: ${fmtAllowance(amount)} · 실제로 들어간 한도: ${fmtMovn(allowance)} MOVN` }),
         e("p", { class: "muted small", text: "지갑 서명 창의 금액 칸에 적혀 있던 숫자대로 들어갔습니다." }),
         e("p", {
           class: kind === "blocked" ? "warn" : undefined,
@@ -6588,7 +6527,7 @@ function mountOwner(doc, deps = {}) {
               : `이대로 두면 ${fmtMovn(allowance)} MOVN 까지${rounds === null ? "" : `(지금 쌓인 만큼이면 ${rounds} 번)`} 바뀌고 멈춥니다. 그 뒤에 더 바꾸려면 다시 허락하면 됩니다.`,
         }),
         approveGuidePanel(amount),
-        button("again", "정한 한도로 다시 허락하기", () => finish("again")),
+        button("again", "무제한으로 다시 허락하기", () => finish("again")),
         kind === "short" ? button("continue", "들어간 한도 그대로 계속하기", () => finish("continue")) : null,
         button("cancel", "그만두기", () => finish("stop"), { plain: true }),
       ]);
@@ -6914,14 +6853,11 @@ function mountOwner(doc, deps = {}) {
       }
       if (advance.funded) selfFunded = false;
     }
-    // The wallet first: nobody is asked to choose an amount they then cannot sign for.
     if (!(await ensureWallet())) return;
-    let approveAmount = null;
-    if (plan.needApprove) {
-      const chosen = await askAllowance({ state: plan.state, take: nextTake(plan.state).take });
-      if (chosen === null) return;
-      approveAmount = chosen === "keep" ? null : chosen;
-    }
+    // The allowance is asked for with no limit (operator's decision, 2026-11-17): nobody is
+    // asked how much MOVN in all. The wallet app may still show its own amount; what lands
+    // is read back and said (shortAllowanceScreen).
+    const approveAmount = plan.needApprove ? MaxUint256 : null;
     const result = await registerDirect(ctx, pageSender(), plan, {
       recipient,
       harvester,
@@ -6963,19 +6899,17 @@ function mountOwner(doc, deps = {}) {
     await signAndSend(setRecipientCall(ctx.chain, to), { doneTitle: "받는 지갑을 바꿨습니다" });
   }
 
-  /** Setting the allowance of a wallet that is already on to a new amount. */
+  /** Approving a wallet that is already on again, with no limit (nothing is asked). */
   async function flowApprove() {
     const state = st.state;
     if (!state) return;
     const take = nextTake(state).take;
     if (!(await ensureWallet())) return;
-    const amount = await askAllowance({ state, take });
-    if (amount === null || amount === "keep") return;
     const gasPrice = await work(() => base.gasPrice());
-    const approved = await approveEnough(ctx, pageSender(), { gasPrice, take, amount, confirm: confirmPrepared, onShort: shortAllowanceScreen });
+    const approved = await approveEnough(ctx, pageSender(), { gasPrice, take, amount: MaxUint256, confirm: confirmPrepared, onShort: shortAllowanceScreen });
     if (approved.receipts.length === 0) return;
     const ok = approved.status === "ok";
-    await resultScreen(ok ? "허락 한도를 정했습니다" : approved.status === "reverted" ? "허락 거래가 되돌아갔습니다" : "허락 한도가 정한 것과 다릅니다", approved.receipts, {
+    await resultScreen(ok ? "다시 허락했습니다" : approved.status === "reverted" ? "허락 거래가 되돌아갔습니다" : "허락 한도가 요청한 것과 다릅니다", approved.receipts, {
       note: approved.allowance === null ? "" : `지금 허락 한도: ${fmtAllowance(approved.allowance)}`,
     });
   }
@@ -6998,9 +6932,7 @@ function mountOwner(doc, deps = {}) {
     const gasPrice = await work(() => base.gasPrice());
     const { take } = nextTake(state);
     if (state.allowance < take) {
-      const amount = await askAllowance({ state, take });
-      if (amount === null || amount === "keep") return;
-      const approved = await approveEnough(ctx, pageSender(), { gasPrice, take, amount, confirm: confirmPrepared, onShort: shortAllowanceScreen });
+      const approved = await approveEnough(ctx, pageSender(), { gasPrice, take, amount: MaxUint256, confirm: confirmPrepared, onShort: shortAllowanceScreen });
       if (approved.status === "cancelled") return;
       if (approved.status === "reverted") {
         await resultScreen("허락 거래가 되돌아갔습니다", approved.receipts);
