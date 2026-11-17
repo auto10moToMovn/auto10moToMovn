@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-hiVF4IFyStaHoEV290jWKkancXwbZJW0gI7glSBk3ok='; style-src 'sha256-cXiw2zCnQrjO4xjCMbP7i3uvyn1XnUhYKzhrBvSJqqw='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-HNkHXUWQLIHuGc51D+i7XrAd9vWZg9V8lseaF7p78og='; style-src 'sha256-cXiw2zCnQrjO4xjCMbP7i3uvyn1XnUhYKzhrBvSJqqw='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -6824,7 +6824,7 @@ function mountOwner(doc, deps = {}) {
       screen([
         art(doc, "ill-bnb", "hero wide"),
         e("h2", { class: "center", text: "가스값 먼저 받기" }),
-        e("p", { text: "종이지갑에 BNB 가 없어도 켤 수 있게, 운영자가 거래 수수료(가스)만큼의 BNB 를 먼저 넣어 줍니다. 받을지는 직접 정하세요. BNB 를 직접 넣어도 됩니다." }),
+        e("p", { text: "종이지갑에 BNB 가 없어서, 운영자가 거래 수수료(가스)만큼의 BNB 를 먼저 넣어 줍니다. 아래 규칙을 보고 '가스값 받고 계속'을 누르세요." }),
         e(
           "ol",
           { class: "rules", role: "advance-rules" },
@@ -6832,20 +6832,15 @@ function mountOwner(doc, deps = {}) {
           e("li", { text: "갚는 방법: 자동 바꾸기를 켜는 순간, 계약이 이번 이자(MOVN)에서 가스값만큼 떼어 운영자에게 돌려줍니다. 따로 보낼 것은 없습니다." }),
           e("li", { text: "종이지갑 하나에 한 번만 받을 수 있습니다. 운영자가 넣어 주는 가스값은 이것과 '다시 승인 가스값'을 합쳐 한 번뿐입니다." }),
           e("li", { text: "받고 하루 안에 자동 바꾸기를 켜지 않으면, 그 종이지갑은 다시는 먼저 받을 수 없습니다." }),
-          e("li", { text: "조건: 원금 WBMB 10 개 이상 · MOVN 1 개 이상 · BNB 가 없는 종이지갑." }),
-          e("li", { text: "받고 켜지 않는 일이 많아지면, 운영자가 'MOVN 이 10모의 기적 이자를 보내는 주소에서 들어온 종이지갑만' 받도록 조건을 더할 수 있습니다." }),
+          e("li", { text: "조건: 원금 WBMB 10 개 이상 · MOVN 1 개 이상 · BNB 가 없는 종이지갑 · MOVN 이 10모의 기적 이자를 보내는 주소에서 들어온 종이지갑만." }),
           e("li", { text: "신청할 때 Trust Wallet 이 '서명 요청'을 보여 줍니다. 거래가 아니라 글에 하는 서명이라 돈이 움직이지 않고, 이 종이지갑의 주인이 신청했다는 확인으로만 씁니다." }),
         ),
-        // Two ways, neither pressed on the person: the same weight for both.
-        button("apply", "가스값 먼저 받기 신청", () => finish("apply")),
-        button("own-bnb", "BNB 를 직접 넣겠습니다", () => finish("own")),
+        // One way forward (operator, 2026-11-17: "최대한 한방향으로"); own BNB is a note, not a fork.
+        button("apply", "가스값 받고 계속", () => finish("apply"), { strong: true }),
+        e("p", { class: "muted small", role: "own-bnb-note", text: "BNB 를 직접 넣어 켜려면 '그만두기'를 누르고 내 종이지갑 주소로 BNB 를 조금 넣은 뒤 다시 '자동 바꾸기 켜기'를 누르세요. BNB 가 있으면 이 화면 없이 바로 켜집니다." }),
         button("cancel", "그만두기", () => finish(null), { plain: true }),
       ]);
     });
-    if (choice === "own") {
-      await needBnbScreen(plan);
-      return false;
-    }
     if (choice !== "apply") return false;
     const eth = await ensureWallet();
     if (!eth) return false;
@@ -6911,7 +6906,7 @@ function mountOwner(doc, deps = {}) {
       screen([
         art(doc, "ill-bnb", "hero wide"),
         e("h2", { class: "center", role: "reapprove-title", text: "다시 승인 가스값 받기" }),
-        e("p", { text: "종이지갑에 BNB 가 모자라 다시 승인할 수 없습니다. 운영자가 승인 한 번의 수수료(가스)만큼 BNB 를 넣어 줄 수 있습니다. BNB 를 직접 넣어도 됩니다." }),
+        e("p", { text: "종이지갑에 BNB 가 모자라 다시 승인할 수 없어서, 운영자가 승인 한 번의 수수료(가스)만큼 BNB 를 넣어 줍니다. 아래 규칙을 보고 '가스값 받고 계속'을 누르세요." }),
         e(
           "ol",
           { class: "rules", role: "reapprove-rules" },
@@ -6921,15 +6916,11 @@ function mountOwner(doc, deps = {}) {
           e("li", { text: "조건: 자동 바꾸기가 켜져 있고 운영자에게 맡긴 종이지갑 · 원금 WBMB 10 개 이상 · BNB 가 없는 종이지갑." }),
           e("li", { text: "신청할 때 Trust Wallet 이 '서명 요청'을 보여 줍니다. 거래가 아니라 글에 하는 서명이라 돈이 움직이지 않습니다." }),
         ),
-        button("apply", "다시 승인 가스값 받기 신청", () => finish("apply")),
-        button("own-bnb", "BNB 를 직접 넣겠습니다", () => finish("own")),
+        button("apply", "가스값 받고 계속", () => finish("apply"), { strong: true }),
+        e("p", { class: "muted small", role: "own-bnb-note", text: `BNB 를 직접 넣으려면 '그만두기'를 누르고 내 종이지갑 주소로 BNB 를 조금(지금 가스 값으로 약 ${fmtBnb(APPROVE_GAS_MAX * gasPrice)} BNB) 넣은 뒤 다시 '다시 승인하기'를 누르세요.` }),
         button("cancel", "그만두기", () => finish(null), { plain: true }),
       ]);
     });
-    if (choice === "own") {
-      await messageScreen("BNB 를 넣어 주세요", `내 종이지갑 주소 ${st.card} 로 BNB(BNB 스마트 체인)를 조금 넣은 뒤 '다시 승인하기'를 다시 눌러 주세요. 승인 한 번의 수수료는 지금 가스 값으로 약 ${fmtBnb(APPROVE_GAS_MAX * gasPrice)} BNB 입니다.`);
-      return;
-    }
     if (choice !== "apply") return;
     const eth = await ensureWallet();
     if (!eth) return;
