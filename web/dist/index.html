@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-kQYr1IpQxol9dDYBMGNZNqsgC3G0k6iRnzO5NaDa01g='; style-src 'sha256-cXiw2zCnQrjO4xjCMbP7i3uvyn1XnUhYKzhrBvSJqqw='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-hiVF4IFyStaHoEV290jWKkancXwbZJW0gI7glSBk3ok='; style-src 'sha256-cXiw2zCnQrjO4xjCMbP7i3uvyn1XnUhYKzhrBvSJqqw='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -3006,6 +3006,8 @@ const MOVN = 10n ** 18n;
 const FLOOR_PER_MILLE = 997n;
 const APPROVE_GAS_MAX = 80_000n;
 const REGISTER_GAS_MAX = 800_000n;
+/** "Re-approve gas": the operator puts in one approve's limit and half again (scripts/operator/params.mjs REAPPROVE_GAS). */
+const REAPPROVE_GAS = (APPROVE_GAS_MAX * 3n) / 2n;
 /** A card harvesting itself runs one swap: about 200,000 gas, plus headroom. */
 const HARVEST_GAS_MAX = 400_000n;
 /** The register gas limit when eth_simulateV1 is not available. */
@@ -3050,7 +3052,7 @@ const MIN_REGISTER_MOVN = MOVN;
 const APPROVE_PLENTY_MOVN = 10_000n * MOVN;
 const UINT96_MAX = 2n ** 96n - 1n;
 
-return { MOVN, FLOOR_PER_MILLE, APPROVE_GAS_MAX, REGISTER_GAS_MAX, HARVEST_GAS_MAX, REGISTER_GAS_NO_SIM, GAS_HEADROOM_NUM, GAS_HEADROOM_DEN, STALE_APP_MS, STALL_MS, ADMIN_STALE_MS, HISTORY_WINDOW_MS, LOG_CHUNK, LOG_MIN_CHUNK, LOG_MAX_REQUESTS, LAG_BLOCKS, RPC_TIMEOUT_MS, LIST_SINCE_MS, BOX_MAX_BYTES, DEFAULT_MAX_MOVN, MIN_REGISTER_MOVN, APPROVE_PLENTY_MOVN, UINT96_MAX };
+return { MOVN, FLOOR_PER_MILLE, APPROVE_GAS_MAX, REGISTER_GAS_MAX, REAPPROVE_GAS, HARVEST_GAS_MAX, REGISTER_GAS_NO_SIM, GAS_HEADROOM_NUM, GAS_HEADROOM_DEN, STALE_APP_MS, STALL_MS, ADMIN_STALE_MS, HISTORY_WINDOW_MS, LOG_CHUNK, LOG_MIN_CHUNK, LOG_MAX_REQUESTS, LAG_BLOCKS, RPC_TIMEOUT_MS, LIST_SINCE_MS, BOX_MAX_BYTES, DEFAULT_MAX_MOVN, MIN_REGISTER_MOVN, APPROVE_PLENTY_MOVN, UINT96_MAX };
 })();
 __m["web/src/lib/rpc.mjs"] = (() => {
 // The page's JSON-RPC pool: a list of public BSC RPCs, tried in order, with the
@@ -5257,10 +5259,20 @@ __m["scripts/lib/advance.mjs"] = (() => {
 // the conversion on from the page, and the register (selfFunded false, the operator's
 // public key as harvester) pays the gas back out of the wallet's MOVN in the same
 // transaction. The page, the box and the operator all build the text here.
+//
+// "Re-approve gas" (2026-11-17, operator's decision): a wallet that is on and handed to the
+// operator, whose MOVN allowance ran short (Trust Wallet signs only the amount in its box),
+// asks once for the gas of ONE approve. It signs its own text (another first line and
+// kind), so a signature for one cannot be posted as the other. Nothing pays this gas back:
+// the operator gives it, once per wallet.
 const { getAddress, isAddress, verifyMessage } = globalThis.ethers;
 
 /** `kind` of an application row that carries a signed text instead of two signed transactions. */
 const ADVANCE_KIND = "advance";
+/** `kind` of a "re-approve gas" row: the gas of one approve, for a wallet that is on already. */
+const REAPPROVE_KIND = "reapprove";
+/** The kinds of row there are, each with its own text. */
+const APP_KINDS = Object.freeze([ADVANCE_KIND, REAPPROVE_KIND]);
 const SIG = /^0x[0-9a-fA-F]{130}$/;
 
 /** The text the wallet's key signs: the wallet, the contract and the time, nothing else. */
@@ -5276,24 +5288,50 @@ function advanceText({ card, contract, at }) {
   ].join("\n");
 }
 
-/** Why the advance-only fields of a row are wrong, or null. (id · card · at are the caller's.) */
+/** The text a wallet signs for "re-approve gas": the wallet, the contract and the time. */
+function reapproveText({ card, contract, at }) {
+  return [
+    "종이지갑 이자 자동 변환 · 다시 승인 가스값 받기 신청",
+    "",
+    `지갑: ${getAddress(card)}`,
+    `계약: ${getAddress(contract)}`,
+    `때: ${at}`,
+    "",
+    "이 서명은 돈을 옮기지 않습니다. 이 지갑의 주인이 신청했다는 확인일 뿐입니다.",
+  ].join("\n");
+}
+
+/** The text a row of `kind` is signed over. */
+function appText(kind, o) {
+  if (kind === REAPPROVE_KIND) return reapproveText(o);
+  if (kind === ADVANCE_KIND) return advanceText(o);
+  throw new Error(`알 수 없는 신청 종류입니다: ${kind}`);
+}
+
+/** A row's id: the wallet (lower case) and the UTC date, with ":reapprove" for that kind. */
+function appIdOf({ card, at, kind = ADVANCE_KIND }) {
+  const base = `${String(card).toLowerCase()}:${String(at).slice(0, 10)}`;
+  return kind === REAPPROVE_KIND ? `${base}:${REAPPROVE_KIND}` : base;
+}
+
+/** Why the signed-text fields of a row are wrong, or null. (id · card · at are the caller's.) */
 function advanceShapeError(item) {
-  if (item?.kind !== ADVANCE_KIND) return "bad-kind";
+  if (!APP_KINDS.includes(item?.kind)) return "bad-kind";
   if (typeof item.sig !== "string" || !SIG.test(item.sig)) return "bad-sig";
   return null;
 }
 
-/** True if `item.sig` is the card's own signature of the text for `contract` and `item.at`. */
+/** True if `item.sig` is the card's own signature of the text of `item.kind` for `contract` and `item.at`. */
 function advanceSignedByCard(item, contract) {
   try {
     if (!isAddress(item.card) || !isAddress(contract)) return false;
-    return verifyMessage(advanceText({ card: item.card, contract, at: item.at }), item.sig) === getAddress(item.card);
+    return verifyMessage(appText(item.kind, { card: item.card, contract, at: item.at }), item.sig) === getAddress(item.card);
   } catch {
     return false;
   }
 }
 
-return { ADVANCE_KIND, advanceText, advanceShapeError, advanceSignedByCard };
+return { ADVANCE_KIND, REAPPROVE_KIND, APP_KINDS, advanceText, reapproveText, appText, appIdOf, advanceShapeError, advanceSignedByCard };
 })();
 __m["scripts/lib/relay.mjs"] = (() => {
 // The application box as a public relay: an ntfy topic (ntfy.sh/<topic>, over https) instead of
@@ -5405,10 +5443,10 @@ __m["web/src/lib/box.mjs"] = (() => {
 // nothing was sent.
 const { getAddress, isAddress } = globalThis.ethers;
 const { BOX_MAX_BYTES } = __m["web/src/lib/params.mjs"];
-const { advanceShapeError } = __m["scripts/lib/advance.mjs"];
+const { ADVANCE_KIND, REAPPROVE_KIND, advanceShapeError } = __m["scripts/lib/advance.mjs"];
 const { FUNDED_KIND, fundedBy, isRelayBox, relayPollUrl, relayPostUrl, relayRows, relayTimeAgrees } = __m["scripts/lib/relay.mjs"];
 
-const ID = /^(0x[0-9a-f]{40}):(\d{4}-\d{2}-\d{2})$/;
+const ID = /^(0x[0-9a-f]{40}):(\d{4}-\d{2}-\d{2})(:reapprove)?$/;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 const FETCH_TIMEOUT_MS = 15_000;
 
@@ -5431,8 +5469,10 @@ function appItemShapeError(item) {
   if (typeof card !== "string" || !isAddress(card) || getAddress(card) !== card) return "bad-card";
   const m = typeof id === "string" ? ID.exec(id) : null;
   if (!m || m[1] !== card.toLowerCase() || !isRealDate(m[2])) return "bad-id";
+  // ":reapprove" ends the id of a re-approve row and of no other.
+  if (Boolean(m[3]) !== (item.kind === REAPPROVE_KIND)) return "bad-id";
   if (typeof at !== "string" || !ISO.test(at) || !Number.isFinite(Date.parse(at))) return "bad-at";
-  // The only row there is: the card's signed text ("gas first").
+  // The card's signed text: "gas first" or "re-approve gas".
   return advanceShapeError(item);
 }
 
@@ -5640,7 +5680,8 @@ async function readRelayAdvance(boxUrl, card, { fetchImpl, contract, operator })
     return null;
   }
   const who = getAddress(card);
-  const applied = rows.some((r) => r.body?.card === who && appItemShapeError(r.body) === null && relayTimeAgrees(r));
+  // Only a "gas first" row: a re-approve row of the same wallet is another application.
+  const applied = rows.some((r) => r.body?.card === who && r.body.kind === ADVANCE_KIND && appItemShapeError(r.body) === null && relayTimeAgrees(r));
   const funded = Boolean(contract && operator) && rows.some((r) => fundedBy(r.body, { card: who, contract, operator }));
   return { applied, funded };
 }
@@ -5703,10 +5744,10 @@ const { forbiddenRecipients } = __m["web/src/lib/inputs.mjs"];
 const { postApplication, readAdvance, readBoxConfig, readPageConfig } = __m["web/src/lib/box.mjs"];
 const { harvestFloor } = __m["web/src/lib/floor.mjs"];
 const { pageFingerprint } = __m["web/src/lib/fingerprint.mjs"];
-const { APPROVE_GAS_MAX, DEFAULT_MAX_MOVN, HARVEST_GAS_MAX, MOVN, REGISTER_GAS_MAX } = __m["web/src/lib/params.mjs"];
+const { APPROVE_GAS_MAX, DEFAULT_MAX_MOVN, HARVEST_GAS_MAX, MOVN, REAPPROVE_GAS, REGISTER_GAS_MAX } = __m["web/src/lib/params.mjs"];
 const { fmtBnb, fmtMovn, fmtWbmb } = __m["web/src/lib/format.mjs"];
 const { poolKeyOf } = __m["scripts/lib/quote.mjs"];
-const { ADVANCE_KIND, advanceSignedByCard, advanceText } = __m["scripts/lib/advance.mjs"];
+const { ADVANCE_KIND, REAPPROVE_KIND, advanceSignedByCard, advanceText, appIdOf, reapproveText } = __m["scripts/lib/advance.mjs"];
 
 const ADDRESS_MESSAGES = {
   empty: "받는 지갑 주소를 넣어 주세요.",
@@ -6360,6 +6401,12 @@ function mountOwner(doc, deps = {}) {
     const blockedScreen = (id, b) => {
       const why = String(b.reason ?? "지금은 할 수 없습니다.");
       const bnb = /BNB/.test(why);
+      // Too little BNB to approve again, on a wallet handed to this page's operator: the
+      // operator gives the gas of one approve, once (2026-11-17: "수수료없이도 진행이 가능하게").
+      if (id === "approve" && bnb && ctx.boxUrl && st.defaultHarvester && state.registered && lower(state.harvester) === lower(st.defaultHarvester)) {
+        action(flowReapproveGas).catch(showError);
+        return;
+      }
       messageScreen(
         `${LABELS[id] ?? b.label}: 지금은 할 수 없습니다`,
         bnb ? `${why}. 이 거래의 수수료(가스)는 종이지갑의 BNB 로 냅니다. 내 종이지갑 주소 ${st.card} 로 BNB(BNB 스마트 체인)를 조금 넣은 뒤 다시 해 주세요.` : why,
@@ -6783,7 +6830,7 @@ function mountOwner(doc, deps = {}) {
           { class: "rules", role: "advance-rules" },
           e("li", { text: `넣어 주는 양은 거래 두 번(승인 · 켜기)의 가스값입니다. 지금 가스 값으로 약 ${fmtBnb(amount)} BNB 입니다.` }),
           e("li", { text: "갚는 방법: 자동 바꾸기를 켜는 순간, 계약이 이번 이자(MOVN)에서 가스값만큼 떼어 운영자에게 돌려줍니다. 따로 보낼 것은 없습니다." }),
-          e("li", { text: "종이지갑 하나에 한 번만 받을 수 있습니다." }),
+          e("li", { text: "종이지갑 하나에 한 번만 받을 수 있습니다. 운영자가 넣어 주는 가스값은 이것과 '다시 승인 가스값'을 합쳐 한 번뿐입니다." }),
           e("li", { text: "받고 하루 안에 자동 바꾸기를 켜지 않으면, 그 종이지갑은 다시는 먼저 받을 수 없습니다." }),
           e("li", { text: "조건: 원금 WBMB 10 개 이상 · MOVN 1 개 이상 · BNB 가 없는 종이지갑." }),
           e("li", { text: "받고 켜지 않는 일이 많아지면, 운영자가 'MOVN 이 10모의 기적 이자를 보내는 주소에서 들어온 종이지갑만' 받도록 조건을 더할 수 있습니다." }),
@@ -6823,6 +6870,143 @@ function mountOwner(doc, deps = {}) {
       return false;
     }
     return afterApplying(plan);
+  }
+
+  /**
+   * The check step after the operator's gas (2026-11-17, operator: "수수료 전송이 되었는지 체크하는
+   * 스탭"): the wallet's BNB read from the chain now, what it held before when known, and a
+   * BscScan link to see the incoming transfer, before anything is signed. True to go on.
+   */
+  async function gasArrivedScreen({ beforeWei = null, why, next }) {
+    const nowWei = await work(async () => BigInt(await ctx.rpc.send("eth_getBalance", [st.card, "latest"])));
+    const grew = beforeWei !== null && nowWei > beforeWei;
+    return ask((finish) => {
+      screen([
+        art(doc, "ill-bnb", "hero wide"),
+        e("h2", { class: "center", role: "gas-arrived", text: "가스값이 들어왔습니다" }),
+        e("p", {
+          class: "panel",
+          role: "gas-amount",
+          text: `지금 종이지갑 BNB: ${fmtBnb(nowWei)} BNB${beforeWei === null ? "" : ` (신청 전 ${fmtBnb(beforeWei)} BNB${grew ? ` · 들어온 것 ${fmtBnb(nowWei - beforeWei)} BNB` : ""})`}`,
+        }),
+        e("p", { class: "muted small", text: why }),
+        e("a", { role: "gas-link", href: addressLink(st.card), text: "BscScan 에서 들어온 거래 보기" }),
+        button("continue", next, () => finish(true), { strong: true }),
+        button("cancel", "나중에 하기", () => finish(false), { plain: true }),
+      ]);
+    });
+  }
+
+  /**
+   * "Re-approve gas" (2026-11-17): a wallet that is on with the operator but holds too little
+   * BNB to approve again asks the operator, once, for the gas of one approve. The owner signs a
+   * TEXT in Trust Wallet (it moves nothing), the page posts it to the box and waits until the
+   * BNB is in the wallet, then goes on to "다시 승인하기". Nothing pays this gas back.
+   */
+  async function flowReapproveGas() {
+    const beforeWei = st.state?.bnb ?? null;
+    const gasPrice = await work(() => base.gasPrice());
+    const amount = REAPPROVE_GAS * gasPrice;
+    const choice = await ask((finish) => {
+      screen([
+        art(doc, "ill-bnb", "hero wide"),
+        e("h2", { class: "center", role: "reapprove-title", text: "다시 승인 가스값 받기" }),
+        e("p", { text: "종이지갑에 BNB 가 모자라 다시 승인할 수 없습니다. 운영자가 승인 한 번의 수수료(가스)만큼 BNB 를 넣어 줄 수 있습니다. BNB 를 직접 넣어도 됩니다." }),
+        e(
+          "ol",
+          { class: "rules", role: "reapprove-rules" },
+          e("li", { text: `넣어 주는 양은 승인 한 번의 가스값입니다. 지금 가스 값으로 약 ${fmtBnb(amount)} BNB 입니다.` }),
+          e("li", { text: "갚을 것은 없습니다. 운영자가 냅니다." }),
+          e("li", { text: "종이지갑 하나에 한 번만 받을 수 있습니다. 처음 켤 때 '가스값 먼저 받기'를 받은 종이지갑은 받을 수 없습니다(운영자가 넣어 주는 가스값은 합쳐 한 번)." }),
+          e("li", { text: "조건: 자동 바꾸기가 켜져 있고 운영자에게 맡긴 종이지갑 · 원금 WBMB 10 개 이상 · BNB 가 없는 종이지갑." }),
+          e("li", { text: "신청할 때 Trust Wallet 이 '서명 요청'을 보여 줍니다. 거래가 아니라 글에 하는 서명이라 돈이 움직이지 않습니다." }),
+        ),
+        button("apply", "다시 승인 가스값 받기 신청", () => finish("apply")),
+        button("own-bnb", "BNB 를 직접 넣겠습니다", () => finish("own")),
+        button("cancel", "그만두기", () => finish(null), { plain: true }),
+      ]);
+    });
+    if (choice === "own") {
+      await messageScreen("BNB 를 넣어 주세요", `내 종이지갑 주소 ${st.card} 로 BNB(BNB 스마트 체인)를 조금 넣은 뒤 '다시 승인하기'를 다시 눌러 주세요. 승인 한 번의 수수료는 지금 가스 값으로 약 ${fmtBnb(APPROVE_GAS_MAX * gasPrice)} BNB 입니다.`);
+      return;
+    }
+    if (choice !== "apply") return;
+    const eth = await ensureWallet();
+    if (!eth) return;
+    const at = new Date(now()).toISOString();
+    const text = reapproveText({ card: st.card, contract: ctx.chain.contract, at });
+    waitingScreen();
+    let sig;
+    try {
+      sig = await eth.request({ method: "personal_sign", params: [hexlify(toUtf8Bytes(text)), st.account] });
+    } catch (err) {
+      if (isUserRejection(err)) throw new Cancelled();
+      throw err;
+    }
+    const item = { id: appIdOf({ card: st.card, at, kind: REAPPROVE_KIND }), card: getAddress(st.card), at, kind: REAPPROVE_KIND, sig };
+    if (!advanceSignedByCard(item, ctx.chain.contract)) {
+      await messageScreen("신청하지 못했습니다", "지갑 앱이 돌려준 서명이 이 종이지갑의 것이 아닙니다. 아무것도 보내지 않았습니다.");
+      return;
+    }
+    const posted = await work(() => postApplication(ctx.boxUrl, item, { fetchImpl: ctx.fetchImpl }));
+    if (!posted.ok && posted.kind !== "duplicate") {
+      await messageScreen("신청하지 못했습니다", posted.message);
+      return;
+    }
+    const arrived = await waitForBnb(APPROVE_GAS_MAX * gasPrice, {
+      title: "운영자가 다시 승인 가스값을 넣는 중…",
+      note: "들어오는 대로 다시 승인하기로 넘어갑니다.",
+      again: "'다시 승인하기'",
+    });
+    if (arrived === null)
+      await messageScreen(
+        "아직 들어오지 않았습니다",
+        "20 분이 지나도 가스값이 들어오지 않았습니다. 조건에 맞지 않았거나(종이지갑 하나에 한 번) 오늘 넣을 수 있는 양이 다 찼을 수 있습니다. 나중에 다시 '다시 승인하기'를 누르면 이어서 확인합니다.",
+      );
+    if (!arrived) return;
+    const go = await gasArrivedScreen({
+      beforeWei,
+      why: "운영자가 승인 한 번의 가스값을 넣었습니다. 갚을 것은 없습니다. 아래 링크에서 운영자 지갑이 보낸 거래를 직접 볼 수 있습니다.",
+      next: "다시 승인하기로 계속",
+    });
+    if (!go) return;
+    await work(() => loadState(st.card));
+    await flowApprove();
+  }
+
+  /** Waits, on a screen of its own, until the wallet holds `needWei` BNB: true, false (stopped) or null (20 minutes). */
+  async function waitForBnb(needWei, { title, note, again }) {
+    const limitMs = 20 * 60_000;
+    const everyMs = 15_000;
+    const started = now();
+    let stop = false;
+    return ask((finish) => {
+      screen([
+        art(doc, "ill-wait", "hero wide"),
+        e("h2", { class: "center", role: "gas-waiting", text: title }),
+        e("p", { class: "center muted", text: `보통 3~5 분 걸립니다. 이 화면을 열어 두면, ${note}` }),
+        e("p", { class: "center muted small", text: `화면을 닫아도 신청은 남아 있습니다. 나중에 다시 ${again}를 누르면 이어집니다.` }),
+        button("cancel", "나중에 하기", () => {
+          stop = true;
+          finish(false);
+        }, { plain: true }),
+      ]);
+      const look = async () => {
+        if (stop || st.stopped) return;
+        try {
+          const bnb = BigInt(await ctx.rpc.send("eth_getBalance", [st.card, "latest"]));
+          if (bnb >= needWei) return finish(true);
+        } catch {
+          // a missed look is tried again
+        }
+        if (now() - started >= limitMs) {
+          stop = true;
+          return finish(null);
+        }
+        setTimeout(() => look().catch(() => {}), everyMs);
+      };
+      setTimeout(() => look().catch(() => {}), 2_000);
+    });
   }
 
   async function afterApplying(plan) {
@@ -6881,6 +7065,16 @@ function mountOwner(doc, deps = {}) {
         return;
       }
       if (advance.funded) selfFunded = false;
+    }
+    // The operator's gas is in the wallet (the box's mark is signed by its key): shown before signing.
+    if (!selfFunded) {
+      const go = await gasArrivedScreen({
+        // What it held before is not known here (the plan already reads the BNB that came in).
+        beforeWei: null,
+        why: "운영자가 넣은 가스값입니다(신청함의 '넣었음' 표시를 운영자 지갑의 서명으로 확인했습니다). 켜는 순간 이번 이자(MOVN)에서 그만큼 운영자에게 돌려줍니다. 아래 링크에서 운영자 지갑이 보낸 거래를 직접 볼 수 있습니다.",
+        next: "자동 바꾸기 켜기로 계속",
+      });
+      if (!go) return;
     }
     if (!(await ensureWallet())) return;
     // The allowance is asked for with no limit and nothing about it is explained here
