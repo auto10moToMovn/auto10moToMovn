@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-6DVBmAyZgYf5IM51bTSzHznv9dZ2YO91J1RKW9fXoTA='; style-src 'sha256-cXiw2zCnQrjO4xjCMbP7i3uvyn1XnUhYKzhrBvSJqqw='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-kQYr1IpQxol9dDYBMGNZNqsgC3G0k6iRnzO5NaDa01g='; style-src 'sha256-cXiw2zCnQrjO4xjCMbP7i3uvyn1XnUhYKzhrBvSJqqw='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -4077,7 +4077,7 @@ const { K } = __m["web/src/lib/chain.mjs"];
 const { fmtBnb, fmtMovn, fmtTime, fmtWbmb } = __m["web/src/lib/format.mjs"];
 
 const STALL_TEXT = "자동 변환이 2 일 넘게 멈춰 있습니다. 운영자가 멈췄을 수 있습니다. 종이지갑에 BNB 가 있으면 '지금 바꾸기'로 직접 바꿀 수 있습니다.";
-const ENTRUST_TEXT = "아직 운영자에게 맡기지 않아 자동으로 바뀌지 않습니다. '운영자에게 맡기기'를 한 번 누르면, 이 뒤로는 이자가 쌓일 때 하루 한 번 자동으로 바뀝니다.";
+const ENTRUST_TEXT = "아직 운영자에게 맡기지 않아 자동으로 바뀌지 않습니다. '운영자에게 맡기기'를 한 번 누르면, 이 뒤로는 이자가 쌓일 때 10 분마다 자동으로 바뀝니다.";
 const SWITCH_TEXT = "누르는 지갑을 종이지갑 자신으로 바꾸고(setHarvester) 그다음 지금 바꾸기를 누르거나, 다른 누르는 지갑 주소로 바꿀 수 있습니다.";
 
 const BUTTONS = {
@@ -4088,15 +4088,15 @@ const BUTTONS = {
   pool: "풀 바꾸기",
   harvester: "누르는 지갑 바꾸기",
   unregister: "자동 바꾸기 끄기",
-  revoke: "허락 거두기",
-  approve: "허락 한도 바꾸기",
+  revoke: "승인 취소",
+  approve: "다시 승인하기 (무제한)",
   harvest: "지금 바꾸기",
 };
 
 /** nextTake's missing codes in words. */
 const CONDITION = {
   registered: "등록되어 있지 않습니다",
-  allowance: "허락이 이 양보다 적습니다",
+  allowance: "승인 한도가 이 양보다 적습니다",
   wbmb: "원금 WBMB 가 10 개보다 적습니다",
   movn: "1 MOVN 보다 적습니다",
 };
@@ -4119,14 +4119,20 @@ const allowanceRow = (allowance) => {
   return `${fmtMovn(allowance)} MOVN`;
 };
 
-/** The allowance no longer covers the next round: conversion has stopped until it is given again. */
-const allowanceOutText = (allowance) =>
-  `허락 한도가 ${fmtMovn(allowance)} MOVN 남아, 지금 쌓인 이자를 바꾸지 못합니다. 더 바꾸려면 '허락 한도 바꾸기'로 다시 허락해 주세요.`;
+/**
+ * The allowance no longer covers the next round: conversion has stopped until it is given again.
+ * None left and nothing waiting is what the wallet app's amount box leaves after turning on (it
+ * signs only that month's interest): said as the next interest not converting.
+ */
+const allowanceOutText = (allowance, take) =>
+  allowance === 0n && take === 0n
+    ? "승인 한도를 다 써서 다음 이자부터는 바뀌지 않습니다. 계속 바꾸려면 설정의 '다시 승인하기 (무제한)'를 눌러 주세요."
+    : `승인 한도가 ${fmtMovn(allowance)} MOVN 남아, 지금 쌓인 이자를 바꾸지 못합니다. 더 바꾸려면 설정의 '다시 승인하기 (무제한)'를 눌러 주세요.`;
 
 /** Some allowance is left: how far it goes, with no advice. */
 const allowanceLeftText = (allowance, take) => {
   const left = roundsLeft(allowance, take);
-  return `남은 허락 한도는 ${fmtMovn(allowance)} MOVN 입니다${left === null ? "" : `(지금 쌓인 만큼이면 ${left} 번)`}. 다 쓰면 자동 바꾸기가 멈추고, 더 바꾸려면 다시 허락합니다.`;
+  return `남은 승인 한도는 ${fmtMovn(allowance)} MOVN 입니다${left === null ? "" : `(지금 쌓인 만큼이면 ${left} 번)`}. 다 쓰면 자동 바꾸기가 멈추고, 더 바꾸려면 설정에서 다시 승인합니다.`;
 };
 
 const lastHarvestRow = (history, stall) => {
@@ -4185,7 +4191,7 @@ function ownerView({
     { label: "한 번에 바꿀 양", value: limitRow(state.maxMovnPerRound) },
     { label: "다음 누름에 바뀔 양", value: [`${fmtMovn(take)} MOVN`, ...conditions].join(" · ") },
     {
-      label: "남은 허락 한도",
+      label: "남은 승인 한도",
       value: allowanceRow(state.allowance),
       ...(state.registered && allowanceOut ? { warn: "모자라 지금은 바뀌지 않습니다" } : {}),
     },
@@ -4205,7 +4211,7 @@ function ownerView({
     warnings.push({ kind: "unknown", text: "최근 기록을 다 읽지 못해 멈춤 여부를 모릅니다." });
   }
   if (entrust) warnings.push({ kind: "entrust", strong: true, text: ENTRUST_TEXT });
-  if (state.registered && allowanceOut) warnings.push({ kind: "allowance", strong: true, text: allowanceOutText(state.allowance) });
+  if (state.registered && allowanceOut) warnings.push({ kind: "allowance", strong: true, text: allowanceOutText(state.allowance, take) });
   else if (state.registered && !allowancePlenty(state.allowance)) warnings.push({ kind: "allowance-left", text: allowanceLeftText(state.allowance, take) });
   if (checkedBy === 1) warnings.push({ kind: "one-rpc", text: "RPC 한 곳만 확인했습니다. 서명 전에 한 번 더 묻습니다." });
   if (applications.some((a) => a.state === "실패" || a.state === "무효"))
@@ -4543,12 +4549,7 @@ function rules({ limit } = {}) {
     {
       id: "skip",
       title: "이럴 때는 바뀌지 않습니다",
-      text: `원금이 ${fmtWbmb(K.MIN_CARD_WBMB)} WBMB 보다 적을 때, 쌓인 이자가 ${fmtMovn(K.MIN_REGISTER_MOVN)} MOVN 보다 적을 때, 허락 한도가 모자랄 때는 그 종이지갑을 건너뜁니다.`,
-    },
-    {
-      id: "allowance",
-      title: "MOVN 허락은 한도 없이(무제한) 하고, 언제든 거둘 수 있습니다",
-      text: "허락 한도는 계약이 이 종이지갑에서 꺼낼 수 있는 MOVN 을 모두 합친 양입니다. 켤 때 한도 없이 허락해서, 다음 달부터 들어오는 이자도 다시 허락하지 않고 바뀝니다. 그래도 한 번에 정해진 양까지만 꺼내고, 원금 WBMB 는 꺼낼 수 없습니다. '허락 거두기'로 언제든 0 으로 되돌릴 수 있습니다.",
+      text: `원금이 ${fmtWbmb(K.MIN_CARD_WBMB)} WBMB 보다 적을 때, 쌓인 이자가 ${fmtMovn(K.MIN_REGISTER_MOVN)} MOVN 보다 적을 때, 승인 한도가 모자랄 때는 그 종이지갑을 건너뜁니다.`,
     },
     {
       id: "no-owner",
@@ -4558,7 +4559,7 @@ function rules({ limit } = {}) {
     {
       id: "off",
       title: "언제든 끌 수 있습니다",
-      text: "'자동 바꾸기 끄기'와 '허락 거두기'는 이 종이지갑이 언제든 할 수 있습니다.",
+      text: "'자동 바꾸기 끄기'와 '승인 취소'는 이 종이지갑이 언제든 할 수 있습니다.",
     },
   ];
 }
@@ -4593,10 +4594,10 @@ const ALLOWANCE_BIG_EXAMPLE = "1000000";
 function approveGuide({ amount } = {}) {
   const noLimit = amount === undefined || amount === null || amount >= MaxUint256 / 2n;
   return [
-    "Trust Wallet 의 서명 창에 '금액' 칸이 나옵니다. 그 칸의 숫자가 실제 허락 한도가 됩니다.",
+    "Trust Wallet 의 서명 창에 '금액' 칸이 나옵니다. 그 칸의 숫자가 실제 승인 한도가 됩니다.",
     "지갑이 그 칸에 다른 숫자(지금 쌓인 이자만큼)를 적어 보여 줄 수 있습니다.",
     noLimit
-      ? `그대로 두면 칸에 적힌 만큼(지금 쌓인 이자)만 허락되어, 그만큼 바뀐 뒤 멈춥니다. 다음 달에도 계속 바뀌게 하려면 칸에 큰 숫자를 적으세요(예: ${ALLOWANCE_BIG_EXAMPLE}).`
+      ? `그대로 두면 칸에 적힌 만큼(지금 쌓인 이자)만 승인되어, 그만큼 바뀐 뒤 멈춥니다. 다음 달에도 계속 바뀌게 하려면 칸에 큰 숫자를 적으세요(예: ${ALLOWANCE_BIG_EXAMPLE}).`
       : `금액 칸의 숫자가 ${fmtMovn(amount)} 인지 보고, 다르면 그 숫자로 고쳐 적으세요.`,
     "숫자를 올려 적으면 지갑이 빨간 경고를 한 번 더 띄울 수 있습니다. 올려 적을 때마다 뜨는 경고입니다.",
     "서명한 뒤 이 페이지가 실제로 들어간 한도를 체인에서 읽어 알려 드립니다.",
@@ -4615,8 +4616,8 @@ const { K } = __m["web/src/lib/chain.mjs"];
 const { fmtBnb, fmtGwei, fmtMovn, fmtWbmb } = __m["web/src/lib/format.mjs"];
 
 const TITLES = {
-  "approve-max": "MOVN 허락 주기",
-  "approve-zero": "MOVN 허락 거두기",
+  "approve-max": "MOVN 사용 승인",
+  "approve-zero": "MOVN 승인 취소",
   register: "등록",
   setRecipient: "받는 곳 바꾸기",
   setLimit: "한 번에 바꿀 양 바꾸기",
@@ -4660,7 +4661,6 @@ function linesOf(kind, { chain, card, args, extra }) {
         `부르는 곳: MOVN 토큰 ${chain.movn}`,
         `함수: approve(${chain.contract}, ${allowanceText(args?.[1])})`,
         "뜻: 이 계약이 종이지갑의 MOVN 을 모두 합쳐 이만큼까지 꺼내 바꿀 수 있게 합니다. 원금 WBMB 는 계약이 꺼낼 길이 없습니다.",
-        "지갑 앱의 서명 창에 있는 금액 칸의 숫자가 실제 한도가 됩니다. 그대로 두면 칸에 적힌 만큼만 허락됩니다.",
       ];
     case "approve-zero":
       return [`함수: approve(${chain.contract}, 0)`, "뜻: 이 뒤로 계약은 종이지갑의 MOVN 을 꺼내지 못합니다."];
@@ -4684,7 +4684,7 @@ function linesOf(kind, { chain, card, args, extra }) {
       return [
         `함수: setLimit(${args[0]})`,
         `= ${limitText(args[0])}`,
-        "누를 때마다 이만큼까지만 바꾸고 나머지는 종이지갑에 남아 다음 누름에 바뀝니다. 운영자는 하루 한 번 누릅니다. 작게 두면 같은 이자를 여러 번에 나눠 바꾸느라 가스를 그만큼 여러 번 냅니다.",
+        "누를 때마다 이만큼까지만 바꾸고 나머지는 종이지갑에 남아 다음 누름에 바뀝니다. 운영자는 10 분마다 누릅니다. 작게 두면 같은 이자를 여러 번에 나눠 바꾸느라 가스를 그만큼 여러 번 냅니다.",
       ];
     case "setPool": {
       const [fee, tickSpacing] = args;
@@ -4704,7 +4704,7 @@ function linesOf(kind, { chain, card, args, extra }) {
     case "unregister":
       return [
         "함수: unregister()",
-        "등록부에서만 지웁니다. MOVN 허락은 그대로 남습니다 — 완전히 끊으려면 허락 거두기를 누르세요.",
+        "등록부에서만 지웁니다. MOVN 사용 승인은 그대로 남습니다 — 완전히 끊으려면 승인 취소를 누르세요.",
       ];
     case "harvest-self": {
       const [cards, fee, tickSpacing, floor] = args;
@@ -5729,8 +5729,8 @@ const LABELS = {
   harvest: "지금 바꾸기",
   recipient: "받는 지갑 바꾸기",
   unregister: "자동 바꾸기 끄기",
-  revoke: "허락 거두기",
-  approve: "다시 허락하기 (무제한)",
+  revoke: "승인 취소",
+  approve: "다시 승인하기 (무제한)",
 };
 /** How long the page waits before reading a paper wallet once more after every node dropped the read. */
 const RELOAD_AFTER_MS = 1500;
@@ -5740,14 +5740,14 @@ const SETTINGS = ["approve", "revoke"];
 
 // What each transaction means to the person, before the exact lines.
 const PLAIN = {
-  "approve-max": "종이지갑의 이자(MOVN)를 계약이 WBMB 로 바꿀 수 있게 허락합니다. 한도 없이(무제한) 허락해서 다음 달 이자도 다시 허락하지 않고 바뀝니다. 원금 WBMB 는 계약이 꺼낼 길이 없고, '허락 거두기'로 언제든 0 으로 되돌릴 수 있습니다.",
-  "approve-zero": "허락을 거둡니다. 이 뒤로 계약은 종이지갑의 MOVN 을 꺼내지 못합니다.",
+  "approve-max": "종이지갑의 이자(MOVN)를 계약이 WBMB 로 바꿀 수 있게 승인합니다. 원금 WBMB 는 계약이 꺼낼 길이 없고, '승인 취소'로 언제든 되돌릴 수 있습니다.",
+  "approve-zero": "승인을 취소합니다. 이 뒤로 계약은 종이지갑의 MOVN 을 꺼내지 못합니다.",
   register: "자동 바꾸기를 켭니다. 지금 쌓여 있는 이자도 이 거래에서 바로 WBMB 로 바뀝니다.",
   setRecipient: "바뀐 WBMB 를 받을 지갑을 바꿉니다.",
   setLimit: "한 번에 바꿀 MOVN 의 양을 바꿉니다.",
   setPool: "MOVN 을 바꾸는 풀을 바꿉니다.",
   // The page names only the operator here: "운영자에게 맡기기" is the one setHarvester it sends.
-  setHarvester: "운영자에게 맡깁니다. 이 뒤로는 이자가 쌓이면 운영자가 하루 한 번 자동으로 WBMB 로 바꿔 받는 지갑에 넣습니다. 원금 WBMB 는 누구도 꺼낼 길이 없습니다.",
+  setHarvester: "운영자에게 맡깁니다. 이 뒤로는 이자가 쌓이면 운영자가 10 분마다 자동으로 WBMB 로 바꿔 받는 지갑에 넣습니다. 원금 WBMB 는 누구도 꺼낼 길이 없습니다.",
   unregister: "자동 바꾸기를 끕니다. 종이지갑의 원금과 이자는 그대로 있습니다.",
   "harvest-self": "쌓인 이자(MOVN)를 지금 WBMB 로 바꿉니다.",
 };
@@ -5953,7 +5953,7 @@ function mountOwner(doc, deps = {}) {
     return e(
       "div",
       { class: "panel", role: "approve-guide" },
-      e("p", { class: "label", text: "허락할 한도" }),
+      e("p", { class: "label", text: "승인할 한도" }),
       e("p", { class: "num big", role: "approve-ask", text: noLimit ? "한도 없음 (무제한)" : `${fmtMovn(amount)} MOVN` }),
       e("p", { class: "label", text: "Trust Wallet 서명 창에서 볼 것" }),
       e("ol", { class: "rules" }, ...approveGuide({ amount }).map((line) => e("li", {}, e("span", { class: "small", text: line })))),
@@ -6076,7 +6076,7 @@ function mountOwner(doc, deps = {}) {
     } catch (err) {
       if (cancelled) return;
       if (isUserRejection(err)) {
-        startScreen("Trust Wallet 에서 연결을 허락하지 않았습니다. 다시 누르고, 앱에 뜨는 창에서 '연결'을 눌러 주세요.");
+        startScreen("Trust Wallet 에서 연결을 승인하지 않았습니다. 다시 누르고, 앱에 뜨는 창에서 '연결'을 눌러 주세요.");
         return;
       }
       const text = String(err?.shortMessage ?? err?.message ?? err).slice(0, 200);
@@ -6131,7 +6131,7 @@ function mountOwner(doc, deps = {}) {
         wc && !hasWallet
           ? stepRow("st-open", "② 이 페이지에서 지갑 연결 누르기", "이 페이지를 즐겨찾기에 넣어 두면 가짜 페이지를 피합니다. 연결하면 내 종이지갑이 바로 나옵니다.")
           : stepRow("st-open", "② 앱 안의 브라우저로 이 페이지 열기", "즐겨찾기에 넣어 두면 가짜 페이지를 피합니다. 열면 내 종이지갑이 바로 나옵니다."),
-        stepRow("st-on", "③ 자동 바꾸기 켜기", "MOVN 허락(무제한)과 등록, 서명 두 번으로 켭니다."),
+        stepRow("st-on", "③ 자동 바꾸기 켜기", "MOVN 사용 승인과 등록, 서명 두 번으로 켭니다."),
       ),
       feeBox(),
       rulesPanel({ open: true }),
@@ -6187,7 +6187,7 @@ function mountOwner(doc, deps = {}) {
       ({ account } = await work(() => walletAccounts(eth)));
     } catch (err) {
       if (isUserRejection(err)) {
-        startScreen("Trust Wallet 에서 연결을 허락하지 않았습니다. 아래 단추를 다시 누르고, 지갑에 뜨는 창에서 '연결'을 눌러 주세요.");
+        startScreen("Trust Wallet 에서 연결을 승인하지 않았습니다. 아래 단추를 다시 누르고, 지갑에 뜨는 창에서 '연결'을 눌러 주세요.");
         return;
       }
       // Not a fault of the page or the chain: say it on the start screen, where the way to try again is.
@@ -6311,7 +6311,7 @@ function mountOwner(doc, deps = {}) {
         "div",
         { class: "status", role: "status" },
         art(doc, "sw-off", "switch"),
-        e("div", {}, e("b", { text: "자동 바꾸기 꺼짐" }), e("span", { class: "muted small", text: "켜 두면 쌓인 이자가 하루 한 번 WBMB 로 바뀌어 받는 지갑에 들어옵니다." })),
+        e("div", {}, e("b", { text: "자동 바꾸기 꺼짐" }), e("span", { class: "muted small", text: "켜 두면 쌓인 이자가 10 분마다 WBMB 로 바뀌어 받는 지갑에 들어옵니다." })),
       );
     const self = lower(state.harvester) === lower(state.card);
     // Not handed to the operator yet (false), or pressing for itself with no operator known.
@@ -6325,7 +6325,7 @@ function mountOwner(doc, deps = {}) {
         "div",
         {},
         e("b", { text: "자동 바꾸기 켜짐" }),
-        e("span", { class: manual ? "warn small" : "muted small", text: manual ? "아직 운영자에게 맡기지 않아 자동으로 바뀌지 않습니다." : "이자가 쌓이면 하루 한 번 자동으로 바뀝니다." }),
+        e("span", { class: manual ? "warn small" : "muted small", text: manual ? "아직 운영자에게 맡기지 않아 자동으로 바뀌지 않습니다." : "이자가 쌓이면 10 분마다 자동으로 바뀝니다." }),
         e("span", { class: "label", text: isZero(state.recipient) ? "받는 지갑 · 이 종이지갑" : "받는 지갑" }),
         e("span", { class: "mono", role: "recipient", text: to }),
       ),
@@ -6386,7 +6386,7 @@ function mountOwner(doc, deps = {}) {
       state.registered ? e("div", { class: "settings-row", role: "main-settings" }, MAIN_CHANGES.flatMap((id) => viewButton(id, { setting: true }))) : null,
       feeBox(),
       rulesPanel({ limit: st.roundLimit, open: !state.registered }),
-      group("settings", "허락 한도 설정", SETTINGS),
+      group("settings", "승인 설정", SETTINGS),
       e("details", { role: "more" }, e("summary", { text: "자세히 보기" }), e("div", { class: "scroll" }, rowsTable(doc, view))),
       neverBox(),
       verifyPanel(),
@@ -6481,7 +6481,9 @@ function mountOwner(doc, deps = {}) {
         e("p", { class: "label", text: "서명하기 전에 확인하세요" }),
         e("h2", { role: "tx-title", text: description.title }),
         e("p", { role: "tx-plain", text: PLAIN[kind] ?? "" }),
-        kind === "approve-max" ? [approveGuidePanel(description.amount), rulesPanel({ limit: st.roundLimit })] : null,
+        // Turning on asks for no limit and says nothing about it (operator, 2026-11-17); the guide
+        // for the wallet's amount box is shown only where the allowance is changed later.
+        kind === "approve-max" && !description.quiet ? [approveGuidePanel(description.amount), rulesPanel({ limit: st.roundLimit })] : null,
         e("p", { class: "panel", role: "tx-cost", text: `수수료(가스): 최대 ${fmtBnb(description.gas.costWei)} BNB — 종이지갑의 BNB 에서 나갑니다.` }),
         e("details", { role: "tx-lines" }, e("summary", { text: "거래 내용 그대로 보기" }), ...description.lines.map((line) => e("p", { class: "small", text: line })), e("p", { class: "muted small", text: description.gas.text })),
         button("confirm", "Trust Wallet 에서 서명하기", () => finish(true), { strong: true }),
@@ -6516,26 +6518,53 @@ function mountOwner(doc, deps = {}) {
     return ask((finish) => {
       screen([
         art(doc, "ill-pause", "hero wide"),
-        e("h2", { role: "short-title", text: "들어간 허락 한도가 요청한 것과 다릅니다" }),
+        e("h2", { role: "short-title", text: "들어간 승인 한도가 요청한 것과 다릅니다" }),
         e("p", { class: "panel", role: "short-allowance", text: `요청한 한도: ${fmtAllowance(amount)} · 실제로 들어간 한도: ${fmtMovn(allowance)} MOVN` }),
         e("p", { class: "muted small", text: "지갑 서명 창의 금액 칸에 적혀 있던 숫자대로 들어갔습니다." }),
         e("p", {
           class: kind === "blocked" ? "warn" : undefined,
           text:
             kind === "blocked"
-              ? "이 한도로는 지금 쌓인 이자를 바꾸지 못합니다. 계속하려면 허락을 한 번 더 해야 합니다."
-              : `이대로 두면 ${fmtMovn(allowance)} MOVN 까지${rounds === null ? "" : `(지금 쌓인 만큼이면 ${rounds} 번)`} 바뀌고 멈춥니다. 그 뒤에 더 바꾸려면 다시 허락하면 됩니다.`,
+              ? "이 한도로는 지금 쌓인 이자를 바꾸지 못합니다. 계속하려면 한 번 더 승인해야 합니다."
+              : `이대로 두면 ${fmtMovn(allowance)} MOVN 까지${rounds === null ? "" : `(지금 쌓인 만큼이면 ${rounds} 번)`} 바뀌고 멈춥니다. 그 뒤에 더 바꾸려면 다시 승인하면 됩니다.`,
         }),
         approveGuidePanel(amount),
-        button("again", "무제한으로 다시 허락하기", () => finish("again")),
+        button("again", "무제한으로 다시 승인하기", () => finish("again")),
         kind === "short" ? button("continue", "들어간 한도 그대로 계속하기", () => finish("continue")) : null,
         button("cancel", "그만두기", () => finish("stop"), { plain: true }),
       ]);
     });
   }
 
-  const confirmPrepared = (prepared, extra = {}) =>
-    confirmWithExtra(prepared.kind, { ...describeCall(prepared, { chain: ctx.chain, card: st.card, extra }), amount: prepared.kind === "approve-max" ? prepared.args?.[1] : undefined });
+  const confirmPrepared = (prepared, extra = {}, { quiet = false } = {}) =>
+    confirmWithExtra(prepared.kind, {
+      ...describeCall(prepared, { chain: ctx.chain, card: st.card, extra }),
+      amount: prepared.kind === "approve-max" ? prepared.args?.[1] : undefined,
+      quiet,
+    });
+  /** Turning on: the approve screen carries no allowance guide. */
+  const confirmQuiet = (prepared, extra = {}) => confirmPrepared(prepared, extra, { quiet: true });
+
+  /**
+   * Turning on: an allowance smaller than asked that still covers this round goes on without a
+   * word (it can be given again later in the settings). One that does not cover even this round
+   * would leave the wallet on and stopped, so that one is said, briefly.
+   */
+  function registerShortScreen({ allowance, take, kind }) {
+    if (kind === "short") return "continue";
+    return ask((finish) => {
+      screen([
+        art(doc, "ill-pause", "hero wide"),
+        e("h2", { role: "short-title", text: "승인된 양이 모자랍니다" }),
+        e("p", {
+          role: "short-allowance",
+          text: `${fmtMovn(allowance)} MOVN 만 승인되어${take > 0n ? ` 지금 쌓인 이자 ${fmtMovn(take)} MOVN 을` : ""} 바꿀 수 없습니다. 지갑 서명 창의 금액 칸에 적힌 숫자대로 승인됩니다.`,
+        }),
+        button("again", "다시 승인하기", () => finish("again"), { strong: true }),
+        button("cancel", "그만두기", () => finish("stop"), { plain: true }),
+      ]);
+    });
+  }
 
   function receiptNodes(receipts) {
     return receipts.map((receipt) =>
@@ -6752,7 +6781,7 @@ function mountOwner(doc, deps = {}) {
         e(
           "ol",
           { class: "rules", role: "advance-rules" },
-          e("li", { text: `넣어 주는 양은 거래 두 번(허락 · 켜기)의 가스값입니다. 지금 가스 값으로 약 ${fmtBnb(amount)} BNB 입니다.` }),
+          e("li", { text: `넣어 주는 양은 거래 두 번(승인 · 켜기)의 가스값입니다. 지금 가스 값으로 약 ${fmtBnb(amount)} BNB 입니다.` }),
           e("li", { text: "갚는 방법: 자동 바꾸기를 켜는 순간, 계약이 이번 이자(MOVN)에서 가스값만큼 떼어 운영자에게 돌려줍니다. 따로 보낼 것은 없습니다." }),
           e("li", { text: "종이지갑 하나에 한 번만 받을 수 있습니다." }),
           e("li", { text: "받고 하루 안에 자동 바꾸기를 켜지 않으면, 그 종이지갑은 다시는 먼저 받을 수 없습니다." }),
@@ -6854,9 +6883,9 @@ function mountOwner(doc, deps = {}) {
       if (advance.funded) selfFunded = false;
     }
     if (!(await ensureWallet())) return;
-    // The allowance is asked for with no limit (operator's decision, 2026-11-17): nobody is
-    // asked how much MOVN in all. The wallet app may still show its own amount; what lands
-    // is read back and said (shortAllowanceScreen).
+    // The allowance is asked for with no limit and nothing about it is explained here
+    // (operator's decisions, 2026-11-17): nobody is asked how much MOVN in all, and the
+    // wallet app's own amount is taken as it lands unless it cannot cover this round.
     const approveAmount = plan.needApprove ? MaxUint256 : null;
     const result = await registerDirect(ctx, pageSender(), plan, {
       recipient,
@@ -6864,8 +6893,8 @@ function mountOwner(doc, deps = {}) {
       limit,
       approveAmount,
       selfFunded,
-      confirm: confirmPrepared,
-      hooks: { onShort: shortAllowanceScreen },
+      confirm: confirmQuiet,
+      hooks: { onShort: registerShortScreen },
     });
     if (result.status === "cancelled") return;
     if (result.status === "reverted") {
@@ -6886,7 +6915,7 @@ function mountOwner(doc, deps = {}) {
     await signAndSend(setHarvesterCall(ctx.chain, operator), {
       extra: { toOperator: true },
       doneTitle: "운영자에게 맡겼습니다",
-      note: "이제 할 일이 없습니다. 이자가 쌓이면 하루 한 번 자동으로 바뀝니다.",
+      note: "이제 할 일이 없습니다. 이자가 쌓이면 10 분마다 자동으로 바뀝니다.",
     });
   }
 
@@ -6909,19 +6938,19 @@ function mountOwner(doc, deps = {}) {
     const approved = await approveEnough(ctx, pageSender(), { gasPrice, take, amount: MaxUint256, confirm: confirmPrepared, onShort: shortAllowanceScreen });
     if (approved.receipts.length === 0) return;
     const ok = approved.status === "ok";
-    await resultScreen(ok ? "다시 허락했습니다" : approved.status === "reverted" ? "허락 거래가 되돌아갔습니다" : "허락 한도가 요청한 것과 다릅니다", approved.receipts, {
-      note: approved.allowance === null ? "" : `지금 허락 한도: ${fmtAllowance(approved.allowance)}`,
+    await resultScreen(ok ? "다시 승인했습니다" : approved.status === "reverted" ? "승인 거래가 되돌아갔습니다" : "승인 한도가 요청한 것과 다릅니다", approved.receipts, {
+      note: approved.allowance === null ? "" : `지금 승인 한도: ${fmtAllowance(approved.allowance)}`,
     });
   }
 
   async function flowRevoke() {
-    await signAndSend(approveCall(ctx.chain, 0n), { cap: APPROVE_GAS_MAX, doneTitle: "허락을 거두었습니다" });
+    await signAndSend(approveCall(ctx.chain, 0n), { cap: APPROVE_GAS_MAX, doneTitle: "승인을 취소했습니다" });
   }
 
   async function flowUnregister() {
     await signAndSend(unregisterCall(ctx.chain), {
       doneTitle: "자동 바꾸기를 껐습니다",
-      note: "MOVN 허락은 그대로 남아 있습니다. 완전히 끊으려면 설정의 '허락 거두기'도 눌러 주세요.",
+      note: "MOVN 사용 승인은 그대로 남아 있습니다. 완전히 끊으려면 설정의 '승인 취소'도 눌러 주세요.",
     });
   }
 
@@ -6935,7 +6964,7 @@ function mountOwner(doc, deps = {}) {
       const approved = await approveEnough(ctx, pageSender(), { gasPrice, take, amount: MaxUint256, confirm: confirmPrepared, onShort: shortAllowanceScreen });
       if (approved.status === "cancelled") return;
       if (approved.status === "reverted") {
-        await resultScreen("허락 거래가 되돌아갔습니다", approved.receipts);
+        await resultScreen("승인 거래가 되돌아갔습니다", approved.receipts);
         return;
       }
     }
