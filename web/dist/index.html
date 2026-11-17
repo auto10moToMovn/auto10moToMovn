@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-otJhszsQdZuRqLsxY+j79+8i1hCBJ+GL++gBEeY4MwU='; style-src 'sha256-cXiw2zCnQrjO4xjCMbP7i3uvyn1XnUhYKzhrBvSJqqw='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-6M+79+HWLFrS5hg78Ehb02AWuemFD7upl/oY86Soduo='; style-src 'sha256-cXiw2zCnQrjO4xjCMbP7i3uvyn1XnUhYKzhrBvSJqqw='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -3266,11 +3266,25 @@ async function crossCheck(pool, read) {
   const h = await pool.heads();
   if (h.usable.length === 0) throw new RpcDownError("read", h.dropped);
   const blockNumber = h.readBlock;
-  const value = await read(h.usable[0], blockNumber);
-  if (h.usable.length === 1) return { value, checkedBy: 1, blockNumber };
-  const second = await read(h.usable[1], blockNumber);
-  if (!sameAnswer(value, second)) throw new RpcMismatchError();
-  return { value, checkedBy: 2, blockNumber };
+  // A node that answered heads may still drop the read (a phone browser coming back
+  // from the wallet app loses its connections for a moment): pass over it and take
+  // the next usable node, so the first two that DO answer are compared. A real answer
+  // error (a revert) still stops here.
+  const answers = [];
+  const failures = [];
+  for (const url of h.usable) {
+    try {
+      answers.push(await read(url, blockNumber));
+    } catch (e) {
+      if (!(e instanceof RpcDownError)) throw e;
+      failures.push(...e.failures);
+      continue;
+    }
+    if (answers.length === 2) break;
+  }
+  if (answers.length === 0) throw new RpcDownError("read", failures);
+  if (answers.length === 2 && !sameAnswer(answers[0], answers[1])) throw new RpcMismatchError();
+  return { value: answers[0], checkedBy: answers.length, blockNumber };
 }
 
 return { urlOrigin, RpcAnswerError, RpcDownError, RpcMismatchError, sameAnswer, createRpcPool, crossCheck };
@@ -5692,6 +5706,7 @@ const { MaxUint256, ZeroAddress, getAddress, hexlify, toUtf8Bytes } = globalThis
 const { art, h, rowsTable } = __m["web/src/lib/dom.mjs"];
 const { createPageCtx } = __m["web/src/lib/ctx.mjs"];
 const { entrustedTo, nextTake, readCardChecked } = __m["web/src/lib/card.mjs"];
+const { RpcDownError } = __m["web/src/lib/rpc.mjs"];
 const { cardHistory } = __m["web/src/lib/history.mjs"];
 const { stallState } = __m["web/src/lib/stall.mjs"];
 const { ownerView } = __m["web/src/lib/view-owner.mjs"];
@@ -5737,6 +5752,8 @@ const LABELS = {
   revoke: "허락 거두기",
   approve: "허락 한도 바꾸기",
 };
+/** How long the page waits before reading a paper wallet once more after every node dropped the read. */
+const RELOAD_AFTER_MS = 1500;
 // The two a person looks for sit on the wallet screen itself; the rest fold away.
 const MAIN_CHANGES = ["recipient", "unregister"];
 const SETTINGS = ["approve", "revoke"];
@@ -5786,6 +5803,24 @@ function mountOwner(doc, deps = {}) {
   const onPhone = deps.phone ?? (() => false);
   const otherWallet = deps.otherWallet ?? (() => false);
   const pageUrl = deps.pageUrl ?? (() => null);
+  const sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+
+  /**
+   * Resolves once the page is on screen. A phone browser left behind the wallet app (the
+   * person is still in Trust Wallet after pressing "connect" or "confirm") has no network:
+   * its requests fail at once ("Load failed" · TypeError), so nothing is read until it is back.
+   */
+  function whenVisible() {
+    if (doc.visibilityState !== "hidden" || typeof doc.addEventListener !== "function") return Promise.resolve();
+    return new Promise((resolve) => {
+      const on = () => {
+        if (doc.visibilityState === "hidden") return;
+        doc.removeEventListener("visibilitychange", on);
+        resolve();
+      };
+      doc.addEventListener("visibilitychange", on);
+    });
+  }
 
   const st = {
     card: null,
@@ -6290,7 +6325,18 @@ function mountOwner(doc, deps = {}) {
   async function openCard(address) {
     st.card = getAddress(address);
     st.view = null;
-    const loaded = await loadState(st.card);
+    await whenVisible();
+    let loaded;
+    try {
+      loaded = await loadState(st.card);
+    } catch (err) {
+      // Every node dropped the read: most often the connection coming back after the
+      // wallet app. Once more, on screen and a moment later, before showing an error.
+      if (!(err instanceof RpcDownError) || st.stopped) throw err;
+      await whenVisible();
+      await sleep(RELOAD_AFTER_MS);
+      loaded = await loadState(st.card);
+    }
     const card = st.card;
     st.view = viewOf(loaded, null, "loading");
     renderCard(st.view);
