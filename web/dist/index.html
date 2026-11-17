@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-HNkHXUWQLIHuGc51D+i7XrAd9vWZg9V8lseaF7p78og='; style-src 'sha256-cXiw2zCnQrjO4xjCMbP7i3uvyn1XnUhYKzhrBvSJqqw='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-AMFSq3nX0IdEalP+pstToqBsZhvssFUekb9NUrz4ok4='; style-src 'sha256-cXiw2zCnQrjO4xjCMbP7i3uvyn1XnUhYKzhrBvSJqqw='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -5781,7 +5781,7 @@ const SETTINGS = ["approve", "revoke"];
 
 // What each transaction means to the person, before the exact lines.
 const PLAIN = {
-  "approve-max": "종이지갑의 이자(MOVN)를 계약이 WBMB 로 바꿀 수 있게 승인합니다. 원금 WBMB 는 계약이 꺼낼 길이 없고, '승인 취소'로 언제든 되돌릴 수 있습니다.",
+  "approve-max": "종이지갑의 이자(MOVN)를 계약이 WBMB 로 바꿀 수 있게 승인합니다. 원금 WBMB 는 계약이 꺼낼 길이 없고, '승인 취소'를 누르면 그때부터 변환이 멈춥니다(이미 바뀐 WBMB 는 그대로입니다).",
   "approve-zero": "승인을 취소합니다. 이 뒤로 계약은 종이지갑의 MOVN 을 꺼내지 못합니다.",
   register: "자동 바꾸기를 켭니다. 지금 쌓여 있는 이자도 이 거래에서 바로 WBMB 로 바뀝니다.",
   setRecipient: "바뀐 WBMB 를 받을 지갑을 바꿉니다.",
