@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-7//insCfPShITsc0IpkBkoWFogzhcBVhFRkzqZ6a7G4='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-uHWaw/FexwATQANjw51/Aaabx2nitXxVDG2V7NRK614='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -5256,9 +5256,14 @@ const BSC_HEX = "0x38";
 const METHODS = ["eth_sendTransaction", "personal_sign"];
 const EVENTS = ["accountsChanged", "chainChanged"];
 
-/** Opens Trust Wallet on its "connect to this page?" screen. */
+/**
+ * Opens Trust Wallet on its "connect to this page?" screen, by the app's own address.
+ * Not the https link host (link.trustwallet.com): it no longer vouches for the app (2026-11-18: its
+ * verification files answer 302, Android marks the domain unverified on a new install), so the
+ * browser opened it as a web page and landed on Trust Wallet's home page, the pairing text gone.
+ */
 function trustWcLink(uri) {
-  return `https://link.trustwallet.com/wc?uri=${encodeURIComponent(uri)}`;
+  return `trust://wc?uri=${encodeURIComponent(uri)}`;
 }
 
 /**
@@ -5407,7 +5412,8 @@ function createWcWallet({ lib, projectId, pageUrl, backLink = "" }) {
     /** Where a tap brings the connected app to the front (it then shows the waiting request), or null. */
     appLink() {
       const back = session?.peer?.metadata?.redirect;
-      const link = back?.universal || back?.native || null;
+      // The app's own address first: its https one opens a web page where the phone does not hand that host to the app.
+      const link = back?.native || back?.universal || null;
       return typeof link === "string" && /^(https:|[a-z][a-z0-9+.-]*:\/\/)/i.test(link) && !/^(javascript|data|http):/i.test(link) ? link : null;
     },
   };
