@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-hH49yKR6mUwIl50iGy5BJrcmsORrTRm84CQ10A1rtZg='; style-src 'sha256-ycnIkd074dnxDrrnh4UvZer1Dt+97GJmOXX28E05stA='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-eLcyeZ/2FowFQTlxaPorssGGWDC28onw5jPateMphl4='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -290,6 +290,9 @@ details { padding: 0.85rem 1rem; background: var(--panel); border-radius: var(--
 summary { font-weight: 700; color: var(--ink-2); cursor: pointer; }
 details[open] > summary { margin-bottom: 0.6rem; }
 details > * + * { margin-top: 0.6rem; }
+/* The code links: one per line, the always-visible one above the panel. */
+.verify-wrap > * + * { margin-top: 0.6rem; }
+details[data-role="verify"] > a { display: block; overflow-wrap: anywhere; }
 
 /* the rules and the signing guide: numbered, each a title over its line */
 ol.rules { display: flex; flex-direction: column; gap: 0.65rem; margin: 0; padding-left: 1.4rem; }
@@ -4560,8 +4563,9 @@ async function registerPaired(ctx, sender, plan, { recipient, harvester, limit, 
  * for a wallet that got its gas first: the register then pays it back). Each attempt is
  * confirmed before it is signed. One re-sign if the price moved under the register;
  * then the page asks for BNB instead.
- * `unswapped` is set when the pair registered but too little was approved for the first swap.
- * @returns {Promise<{status: "registered"|"reverted"|"cancelled", floor: bigint|null, receipts: object[], unswapped?: object}>}
+ * `unswapped` is set when the pair registered but too little was approved for the first swap;
+ * `earlier` when a register signed in an earlier visit went in first (nothing new was signed for it).
+ * @returns {Promise<{status: "registered"|"reverted"|"cancelled", floor: bigint|null, receipts: object[], unswapped?: object, earlier?: boolean}>}
  */
 async function registerDirect(ctx, sender, plan, { recipient, harvester, limit, confirm, approveAmount, selfFunded = true, hooks = {} }) {
   const card = sender.address;
@@ -4612,7 +4616,16 @@ async function registerDirect(ctx, sender, plan, { recipient, harvester, limit, 
       minWbmbOut: 0n,
       maxMovnPerRound: limit,
     });
-    const probe = await firstSwapByCall(ctx, { card, registerCall: probeCall, gasPrice, gasLimit: REGISTER_GAS_NO_SIM });
+    let probe;
+    try {
+      probe = await firstSwapByCall(ctx, { card, registerCall: probeCall, gasPrice, gasLimit: REGISTER_GAS_NO_SIM });
+    } catch (err) {
+      // A register signed in an earlier visit (one of two handed to the app, whose approve was
+      // refused) waits in the network for its nonce and goes in right behind this approve: the
+      // wallet is on, by a transaction the person signed. Seen on the Android app, 2026-11-18.
+      if (err?.reason === "AlreadyRegistered") return { status: "registered", floor, receipts, earlier: true };
+      throw err;
+    }
     // The plan is read up to a cached head behind the chain: MOVN that arrived since
     // then would be swapped with no floor. Ask for a fresh read instead of quoting zero.
     if (probe.firstSwap && take === 0n)
@@ -6034,7 +6047,7 @@ const { forbiddenRecipients } = __m["web/src/lib/inputs.mjs"];
 const { postApplication, readAdvance, readBoxConfig, readPageConfig } = __m["web/src/lib/box.mjs"];
 const { harvestFloor } = __m["web/src/lib/floor.mjs"];
 const { pageFingerprint } = __m["web/src/lib/fingerprint.mjs"];
-const { APPROVE_GAS_MAX, DEFAULT_MAX_MOVN, HARVEST_GAS_MAX, MOVN, REAPPROVE_GAS, REGISTER_GAS_MAX } = __m["web/src/lib/params.mjs"];
+const { APPROVE_GAS_MAX, DEFAULT_MAX_MOVN, HARVEST_GAS_MAX, MIN_REGISTER_MOVN, MOVN, REAPPROVE_GAS, REGISTER_GAS_MAX } = __m["web/src/lib/params.mjs"];
 const { fmtBnb, fmtMovn, fmtWbmb } = __m["web/src/lib/format.mjs"];
 const { poolKeyOf } = __m["scripts/lib/quote.mjs"];
 const { ADVANCE_KIND, REAPPROVE_KIND, advanceSignedByCard, advanceText, appIdOf, reapproveText } = __m["scripts/lib/advance.mjs"];
@@ -6091,6 +6104,9 @@ const isZero = (a) => lower(a) === lower(ZeroAddress);
 /** "0x 7c9E 4d2B …" — an address in fours, so a person can check it letter by letter. */
 const spaced = (address) => `0x ${String(address).slice(2).match(/.{1,4}/g).join(" ")}`;
 const addressLink = (address) => `https://bscscan.com/address/${address}`;
+// The public repository anyone can read: the page's own file, the contract's source and the hash to compare.
+const REPO_URL = "https://github.com/auto10moToMovn/auto10moToMovn/";
+const SOURCE_URL = `${REPO_URL}blob/main/contracts/CardHarvest.sol`;
 const txLink = (hash) => `https://bscscan.com/tx/${hash}`;
 
 /**
@@ -6317,16 +6333,25 @@ function mountOwner(doc, deps = {}) {
       paint();
     }
     return e(
+      "div",
+      { class: "verify-wrap" },
+      // The code is one tap away on every screen that shows this panel, not only inside it.
+      e("p", { class: "small center" }, e("a", { role: "code-link", href: REPO_URL, text: "이 페이지와 계약의 코드는 모두 공개되어 있습니다 (GitHub)" })),
+      e(
       "details",
       { role: "verify" },
-      e("summary", { text: "진짜 페이지인지 확인하는 법" }),
+      e("summary", { text: "코드와 진짜 페이지 확인하는 법" }),
+      e("p", { class: "label", text: "코드 — 누구나 읽고 견줄 수 있습니다" }),
+      e("a", { role: "repo-link", href: REPO_URL, text: "GitHub 저장소 (이 페이지 파일 · 계약 소스 · 설명)" }),
+      e("a", { role: "source-link", href: SOURCE_URL, text: "계약 소스 CardHarvest.sol" }),
       e("p", { class: "label", text: "계약 주소 — 바꿀 수 없고, 누구나 볼 수 있습니다" }),
       e("p", { class: "mono", role: "contract-address", text: base.chain.contract }),
       e("a", { href: addressLink(base.chain.contract), text: "BscScan에서 계약 보기" }),
       e("p", { class: "label", text: "이 페이지의 지문 (sha256)" }),
       print,
-      e("p", { class: "muted small", text: "저장소 README에 적힌 값과 같아야 합니다." }),
+      e("p", { class: "muted small" }, "저장소 ", e("a", { href: `${REPO_URL}#readme`, text: "README" }), "에 적힌 값과 같아야 합니다."),
       e("p", { class: "muted small", text: "이 주소를 Trust Wallet 브라우저의 즐겨찾기에 넣어 두고, 늘 즐겨찾기로만 들어오세요. 메시지나 검색으로 받은 주소는 가짜일 수 있습니다." }),
+      ),
     );
   }
 
@@ -7668,8 +7693,15 @@ function mountOwner(doc, deps = {}) {
         await messageScreen("지금은 켤 수 없습니다", "신청함이 답하지 않아, 이 종이지갑이 첫 수수료(가스값)를 받았는지 확인하지 못했습니다. 잠시 뒤 다시 해 주세요.");
         return;
       }
-      if (advance.funded) selfFunded = false;
-      else if (advance.applied) {
+      if (advance.funded) {
+        // Paid back from MOVN, which needs at least MIN_REGISTER_MOVN in the wallet (the contract
+        // refuses less: NeedMovn). The operator only funds a wallet that holds that much, so one
+        // with less now spent it in a register that already paid the gas back — turned off and on
+        // again (seen 2026-11-18 on the Android test): it turns on owing nothing, with no screen
+        // about the operator's gas or its own BNB.
+        if (plan.state.movn >= MIN_REGISTER_MOVN) selfFunded = false;
+        else appliedForGas = true;
+      } else if (advance.applied) {
         appliedForGas = true;
         // Applied, BNB in, no mark yet: the operator's BNB may have just gone in with its mark
         // still on the way. Nothing is signed until that is settled ("지급 확인 중").
@@ -7748,6 +7780,13 @@ function mountOwner(doc, deps = {}) {
       // Signed in one visit, but the app's amount box let in less than this round takes.
       await resultScreen("켜졌습니다", result.receipts, {
         note: `다만 ${fmtMovn(result.unswapped.allowance)} MOVN만 승인되어 지금 쌓인 이자 ${fmtMovn(result.unswapped.take)} MOVN은 아직 변환하지 못했습니다. '승인 설정'의 '다시 승인하기 (무제한)'를 한 번 누르면 ${ROUND_WORDS}에서 변환합니다.`,
+      });
+      return;
+    }
+    if (result.earlier) {
+      // The register signed in an earlier visit went in right after this approve.
+      await resultScreen("켜졌습니다", result.receipts, {
+        note: "앞서 Trust Wallet에서 서명해 둔 '켜기' 거래가 이 승인 바로 뒤에 처리되어 켜졌습니다. 받는 지갑과 변환 결과는 종이지갑 화면에서 확인하세요.",
       });
       return;
     }
