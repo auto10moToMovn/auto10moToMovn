@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-oWhm13x/q/gWysb4KngWvWfQQh9Nx1hqDSq5zRuNeoE='; style-src 'sha256-ycnIkd074dnxDrrnh4UvZer1Dt+97GJmOXX28E05stA='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-T7DrMwwJJxlU7HR7iUln7iXSm6x+oP8MdnlPFNyuiZg='; style-src 'sha256-ycnIkd074dnxDrrnh4UvZer1Dt+97GJmOXX28E05stA='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -6843,6 +6843,7 @@ function mountOwner(doc, deps = {}) {
     advance: ["신청 확인(글 서명 · 돈이 움직이지 않음)", "첫 수수료(가스값) 지급", "지급 확인", "거래 서명(승인 · 켜기)"],
     reapprove: ["신청 확인(글 서명 · 돈이 움직이지 않음)", "다시 승인 가스값 지급", "지급 확인", "거래 서명(다시 승인)"],
     own: ["내 BNB 넣기", "들어온 것 확인", "거래 서명(승인 · 켜기)"],
+    have: ["종이지갑 BNB 확인", "거래 서명(승인 · 켜기)"],
   };
 
   /** The steps with the one now marked: done ones ticked, the rest still to come. */
@@ -7002,6 +7003,31 @@ function mountOwner(doc, deps = {}) {
         e("a", { role: "gas-link", href: addressLink(st.card), text: "BscScan에서 들어온 거래 보기" }),
         button("continue", next, () => finish(true), { strong: true }),
         button("cancel", "나중에 하기", () => finish(false), { plain: true }),
+      ]);
+    });
+  }
+
+  /**
+   * A wallet that already holds the gas when it turns on has no first-fee step (operator,
+   * 2026-11-18: it was skipped without a word): this screen says why, with what is needed and
+   * what is in the wallet, before anything is signed. True to go on.
+   */
+  function ownReadyScreen(plan) {
+    return ask((finish) => {
+      screen([
+        art(doc, "ill-bnb", "hero wide"),
+        e("h2", { class: "center", role: "own-ready-title", text: "내 BNB로 켭니다" }),
+        gasSteps("have", 0),
+        e("p", { role: "own-ready-why", text: "종이지갑에 BNB가 이미 있어서 첫 수수료(가스값) 없이 이 BNB로 바로 켭니다. 운영자에게 신청하지 않으므로 갚을 것이 없습니다." }),
+        e(
+          "div",
+          { class: "panel" },
+          e("div", { class: "row" }, e("span", { text: "필요" }), e("span", { class: "num", role: "own-ready-need", text: `${fmtBnb(plan.directNeedWei)} BNB 이상` })),
+          e("div", { class: "row" }, e("span", { text: "지금 있는 양" }), e("span", { class: "num", role: "own-ready-have", text: `${fmtBnb(plan.state.bnb)} BNB` })),
+        ),
+        e("p", { class: "muted small", text: "실제로 쓴 가스값만 나가고, 남은 BNB는 종이지갑에 그대로 있습니다." }),
+        button("continue", "거래 서명으로 계속", () => finish(true), { strong: true }),
+        button("cancel", "그만두기", () => finish(false), { plain: true }),
       ]);
     });
   }
@@ -7228,6 +7254,8 @@ function mountOwner(doc, deps = {}) {
       }
     };
     let plan = await planNow();
+    // Enough BNB from the start: no first-fee step, and a screen that says so before signing.
+    const hadBnb = plan.path === "direct";
     // The owner's own BNB, put in on the "첫 수수료 없이" screen: what the wallet held before it.
     let ownBefore = null;
     if (plan.path === "box") {
@@ -7261,6 +7289,7 @@ function mountOwner(doc, deps = {}) {
     // then brought its own BNB owes nothing. A box that cannot be read now stops
     // here: the page does not guess which way to register.
     let selfFunded = true;
+    let appliedForGas = false;
     if (ctx.boxUrl && st.defaultHarvester) {
       const advance = await work(() => readAdvance(ctx.boxUrl, st.card, advanceOpts()));
       if (advance === null) {
@@ -7269,6 +7298,7 @@ function mountOwner(doc, deps = {}) {
       }
       if (advance.funded) selfFunded = false;
       else if (advance.applied) {
+        appliedForGas = true;
         // Applied, BNB in, no mark yet: the operator's BNB may have just gone in with its mark
         // still on the way. Nothing is signed until that is settled ("지급 확인 중").
         const marked = await waitForGas(plan, { confirming: true });
@@ -7300,6 +7330,8 @@ function mountOwner(doc, deps = {}) {
       if (!go) return;
     }
     if (!(await ensureWallet())) return;
+    // The wallet is the paper wallet's own: the last screen before signing says whose BNB pays.
+    if (hadBnb && selfFunded && ownBefore === null && !appliedForGas && !(await ownReadyScreen(plan))) return;
     // The allowance is asked for with no limit and nothing about it is explained here
     // (operator's decisions, 2026-11-17): nobody is asked how much MOVN in all, and the
     // wallet app's own amount is taken as it lands unless it cannot cover this round.
