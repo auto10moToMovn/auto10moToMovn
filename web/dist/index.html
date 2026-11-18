@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-qKZ0G966Fpr2rKSZesN512BWtG7LQUO2ZwqyrJNISEM='; style-src 'sha256-ycnIkd074dnxDrrnh4UvZer1Dt+97GJmOXX28E05stA='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-WmIPCxn3dRur92siNMg5rGYn7kBB84GVguNgdcCB+Pc='; style-src 'sha256-ycnIkd074dnxDrrnh4UvZer1Dt+97GJmOXX28E05stA='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -6755,6 +6755,9 @@ function mountOwner(doc, deps = {}) {
       screen([
         art(doc, "ill-sign", "hero wide"),
         e("p", { class: "label", text: "서명하기 전에 확인하세요" }),
+        // Turning on takes two signatures: which one this is, so the second trip to the app
+        // does not look like connecting again (operator, 2026-11-18).
+        description.order ? e("p", { class: "panel", role: "tx-order", text: description.order }) : null,
         e("h2", { role: "tx-title", text: description.title }),
         e("p", { role: "tx-plain", text: PLAIN[kind] ?? "" }),
         // Turning on asks for no limit and says nothing about it (operator, 2026-11-17); the guide
@@ -6812,14 +6815,13 @@ function mountOwner(doc, deps = {}) {
     });
   }
 
-  const confirmPrepared = (prepared, extra = {}, { quiet = false } = {}) =>
+  const confirmPrepared = (prepared, extra = {}, { quiet = false, order = "" } = {}) =>
     confirmWithExtra(prepared.kind, {
       ...describeCall(prepared, { chain: ctx.chain, card: st.card, extra }),
       amount: prepared.kind === "approve-max" ? prepared.args?.[1] : undefined,
       quiet,
+      order,
     });
-  /** Turning on: the approve screen carries no allowance guide. */
-  const confirmQuiet = (prepared, extra = {}) => confirmPrepared(prepared, extra, { quiet: true });
 
   /**
    * Turning on: an allowance smaller than asked that still covers this round goes on without a
@@ -7504,7 +7506,15 @@ function mountOwner(doc, deps = {}) {
       limit,
       approveAmount,
       selfFunded,
-      confirm: confirmQuiet,
+      confirm: (prepared, extra = {}) =>
+        confirmPrepared(prepared, extra, {
+          quiet: true,
+          order: !plan.needApprove
+            ? ""
+            : prepared.kind === "register"
+              ? "서명 2번 중 2번째(마지막): 켜기. 승인은 끝났습니다. 이 서명까지 해야 켜집니다."
+              : "서명 2번 중 1번째: 승인. 이 서명 뒤에 '켜기' 서명이 한 번 더 있습니다.",
+        }),
       hooks: {
         onShort: (info) => {
           short = info.kind === "short" ? info : null;
