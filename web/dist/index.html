@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-DOFD3WidxXWlorHNNp5xFYznvXXg/OwSpDdOpWQ42xM='; style-src 'sha256-ycnIkd074dnxDrrnh4UvZer1Dt+97GJmOXX28E05stA='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-qKZ0G966Fpr2rKSZesN512BWtG7LQUO2ZwqyrJNISEM='; style-src 'sha256-ycnIkd074dnxDrrnh4UvZer1Dt+97GJmOXX28E05stA='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -5068,6 +5068,19 @@ function trustWcLink(uri) {
   return `https://link.trustwallet.com/wc?uri=${encodeURIComponent(uri)}`;
 }
 
+/**
+ * The page's domain alone (scheme and host, no path), as the relay's Verify compares it with
+ * the domain the connection really comes from and with the one listed for the project id.
+ */
+function originOf(pageUrl) {
+  try {
+    const { protocol, origin } = new URL(String(pageUrl ?? ""));
+    return protocol === "https:" ? origin : "";
+  } catch {
+    return "";
+  }
+}
+
 /** The BSC addresses a session lets the page use, first one first. */
 function sessionAccounts(session) {
   const all = session?.namespaces?.eip155?.accounts ?? [];
@@ -5097,7 +5110,7 @@ function createWcWallet({ lib, projectId, pageUrl }) {
         lib.SignClient.init({
           projectId,
           relayUrl: WC_RELAY,
-          metadata: { name: "10모 종이지갑 이자 바꾸기", description: "종이지갑 이자(MOVN)를 WBMB로 바꾸는 공개 도구", url: String(pageUrl ?? ""), icons: [] },
+          metadata: { name: "10모 종이지갑 이자 바꾸기", description: "종이지갑 이자(MOVN)를 WBMB로 바꾸는 공개 도구", url: originOf(pageUrl), icons: [] },
         }),
       )
       .then((client) => {
@@ -5186,7 +5199,7 @@ function createWcWallet({ lib, projectId, pageUrl }) {
   };
 }
 
-return { WC_PROJECT_ID, WC_RELAY, trustWcLink, sessionAccounts, createWcWallet };
+return { WC_PROJECT_ID, WC_RELAY, trustWcLink, originOf, sessionAccounts, createWcWallet };
 })();
 __m["web/src/lib/mine.mjs"] = (() => {
 // The one thing the page keeps in the browser: the public address of the paper wallet
