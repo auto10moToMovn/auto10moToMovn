@@ -38,6 +38,7 @@ certutil -hashfile index.html SHA256    # Windows 명령 프롬프트
 - `CardHarvest`: `0xB2CC260bbCb90028B4b58A26B8f2E7212A425b9b` (BNB 스마트 체인, 2026-11-17 배포) — https://bscscan.com/address/0xB2CC260bbCb90028B4b58A26B8f2E7212A425b9b
 - 옛 계약 `0x540f89fA6FF3f586823a0A9630EA45a8bE01Cd9C`(2026-10-27)은 더 쓰지 않는다. 가스 환급이 실비보다 많게 셈해져, 소스는 그대로 두고 가스 상수만 바꿔 새로 올렸다. 옛 계약에 등록해 둔 종이지갑은 거기서 `unregister()` 하고 MOVN 승인을 `approve(옛 주소, 0)`으로 취소한 뒤 새 계약에 다시 켠다.
 - 소스: `contracts/CardHarvest.sol` (solc 0.8.37 · viaIR · cancun · optimizer 200)
+- BscScan 소스 검증: 통과(2026-11-18). 위 BscScan 주소의 Contract 탭에서 체인에 올라간 코드와 맞춰 본 소스를 누구나 읽을 수 있다.
 - 운영비가 가는 수수료 지갑(계약에 박힘): `0x67ea8738238e443E2F05EB336db5f3Df802f76fa`
 - 외부 감사는 받지 않았다.
 
