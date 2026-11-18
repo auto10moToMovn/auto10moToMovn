@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-+0mbm0D4PCz+mdvD/U5O5bSuo8GFYeHyImhFtURTM9Q='; style-src 'sha256-cXiw2zCnQrjO4xjCMbP7i3uvyn1XnUhYKzhrBvSJqqw='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-oWhm13x/q/gWysb4KngWvWfQQh9Nx1hqDSq5zRuNeoE='; style-src 'sha256-ycnIkd074dnxDrrnh4UvZer1Dt+97GJmOXX28E05stA='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -295,6 +295,9 @@ details > * + * { margin-top: 0.6rem; }
 ol.rules { display: flex; flex-direction: column; gap: 0.65rem; margin: 0; padding-left: 1.4rem; }
 ol.rules li { padding-left: 0.2rem; }
 ol.rules li b, ol.rules li span { display: block; }
+/* The operator's gas, step by step: the step now stands out, those to come are quiet. */
+ol.rules li.now { font-weight: 700; }
+ol.rules li.todo { opacity: 0.6; }
 
 /* ---- messages ---- */
 .warn { color: var(--warn); }
@@ -4635,7 +4638,7 @@ function fees() {
       `운영 수수료 ${feePercent}% — 바꿀 때마다 바뀐 WBMB에서 떼어 수수료 지갑으로 갑니다. 예: 1 WBMB가 바뀌면 0.0005 WBMB.`,
       `가스값 — 자동으로 바꿀 때 실제로 든 만큼만, 그 번에 같이 바뀐 종이지갑들이 똑같이 나눠 각자의 이자(MOVN)에서 냅니다. 한 종이지갑의 몫이 그 번에 바꾸는 이자의 ${gasPercent}%를 넘으면 그 번은 바꾸지 않습니다.`,
       "직접 서명하는 거래(켜기 · 설정 바꾸기 · 지금 바꾸기)의 가스는 종이지갑의 BNB에서 나갑니다.",
-      `가스값을 먼저 받아서 켰다면, 켜는 순간 계약에 정해진 가스값(${REFUND_RULE})을 이번 이자(MOVN)에서 운영자에게 돌려줍니다. 받은 BNB 전부가 아니며, 쓰고 남은 BNB는 종이지갑에 남습니다. 더 얹는 것은 없습니다.`,
+      `첫 수수료(가스값)를 받아서 켰다면, 켜는 순간 계약에 정해진 가스값(${REFUND_RULE})을 이번 이자(MOVN)에서 운영자에게 돌려줍니다. 받은 BNB 전부가 아니며, 쓰고 남은 BNB는 종이지갑에 남습니다. 더 얹는 것은 없습니다.`,
       "이 밖의 수수료는 없습니다. 수수료율은 계약에 박혀 있어 아무도 올릴 수 없습니다.",
     ],
   };
@@ -4737,7 +4740,7 @@ function linesOf(kind, { chain, card, args, extra, gasPrice }) {
       if (selfFunded === false) {
         const now = extra?.take !== undefined && extra?.take !== null && extra.take > 0n;
         lines.push(
-          `먼저 받은 가스값을 ${now ? "이 거래 안에서" : "운영자가 처음 바꿀 때"} 갚습니다: 계약에 정해진 가스값(${refundText(gasPrice ?? 0n)})만큼 이자(MOVN)에서 떼어 누르는 지갑에 돌려줍니다. 받은 BNB 중 쓰고 남은 것은 종이지갑에 남습니다. 따로 보낼 것은 없습니다.`,
+          `받은 첫 수수료(가스값)를 ${now ? "이 거래 안에서" : "운영자가 처음 바꿀 때"} 갚습니다: 계약에 정해진 가스값(${refundText(gasPrice ?? 0n)})만큼 이자(MOVN)에서 떼어 누르는 지갑에 돌려줍니다. 받은 BNB 중 쓰고 남은 것은 종이지갑에 남습니다. 따로 보낼 것은 없습니다.`,
         );
       }
       return lines;
@@ -6563,11 +6566,12 @@ function mountOwner(doc, deps = {}) {
     return eth;
   }
 
-  function waitingScreen() {
+  /** While the wallet app asks: a transaction by default, or the words given for a text signature. */
+  function waitingScreen({ title = "Trust Wallet에서 확인을 눌러 주세요", note = "앱이 거래 내용을 보여 줍니다. 확인을 누르면 보내지고, 끝나면 이 화면이 바뀝니다. 보통 몇 초 걸립니다." } = {}) {
     screen([
       art(doc, "ill-wait", "hero wide"),
-      e("h2", { class: "center", role: "waiting", text: "Trust Wallet에서 확인을 눌러 주세요" }),
-      e("p", { class: "center muted", text: "앱이 거래 내용을 보여 줍니다. 확인을 누르면 보내지고, 끝나면 이 화면이 바뀝니다. 보통 몇 초 걸립니다." }),
+      e("h2", { class: "center", role: "waiting", text: title }),
+      e("p", { class: "center muted", text: note }),
       st.eth === wc && wc?.appLink() ? e("a", { role: "wc-app", class: "btn strong", href: wc.appLink(), sameTab: onPhone(), text: "Trust Wallet 앱 열기" }) : null,
       st.eth === wc && wc ? e("p", { class: "center muted small", text: "앱이 저절로 뜨지 않으면 폰에서 Trust Wallet을 직접 열어 주세요. 확인을 누른 뒤에는 앱이 저절로 닫히지 않으니, 화면 맨 위 왼쪽의 돌아가기를 누르거나 브라우저를 직접 다시 열어 이 화면으로 돌아오세요." }) : null,
     ]);
@@ -6832,23 +6836,58 @@ function mountOwner(doc, deps = {}) {
 
   const advanceOpts = () => ({ fetchImpl: ctx.fetchImpl, contract: ctx.chain.contract, operator: st.defaultHarvester });
 
+  // The way through the operator's gas, one direction (operator, 2026-11-18: "서명하기 페이지 전에 첫
+  // 수수료 지급중 페이지가 있어야함 · 완료가 되어야 서명하는것으로"): no transaction is signed before
+  // the gas is in the wallet and marked as the operator's.
+  const GAS_STEPS = {
+    advance: ["신청 확인(글 서명 · 돈이 움직이지 않음)", "첫 수수료(가스값) 지급", "지급 확인", "거래 서명(승인 · 켜기)"],
+    reapprove: ["신청 확인(글 서명 · 돈이 움직이지 않음)", "다시 승인 가스값 지급", "지급 확인", "거래 서명(다시 승인)"],
+    own: ["내 BNB 넣기", "들어온 것 확인", "거래 서명(승인 · 켜기)"],
+  };
+
+  /** The steps with the one now marked: done ones ticked, the rest still to come. */
+  function gasSteps(kind, current) {
+    return e(
+      "ol",
+      { class: "rules", role: "gas-steps" },
+      ...GAS_STEPS[kind].map((label, i) =>
+        e("li", { class: i === current ? "now" : i < current ? "done" : "todo", text: i < current ? `✓ ${label} — 끝남` : i === current ? `▶ ${label} — 지금` : label }),
+      ),
+    );
+  }
+
+  /** How long a wallet that applied and then holds BNB waits for the operator's mark: two of its runs (every 3 minutes) and some. */
+  const MARK_WAIT_MS = 7 * 60_000;
+
   /**
-   * After a "gas first" application: waits, on a screen of its own, until the operator's BNB
+   * After a "gas first" application: waits, on the "지급 중" screen, until the operator's BNB
    * is in the wallet AND the box says it was the operator's (only then does the register pay
    * it back — registering before the mark would not, and the wallet would be refused next
-   * time). True when both are there; false when the person stops or it takes too long.
+   * time). True when both are there; false when the person stops; null when it takes too long.
+   * `confirming`: the wallet already holds the BNB but the mark is not there yet — the
+   * operator's mark may still be on its way, or the BNB is the owner's own (then no mark ever
+   * comes): it waits MARK_WAIT_MS and null means "the owner's own".
    */
-  async function waitForGas(plan) {
-    const limitMs = 20 * 60_000;
+  async function waitForGas(plan, { confirming = false } = {}) {
+    const limitMs = confirming ? MARK_WAIT_MS : 20 * 60_000;
     const everyMs = 15_000;
     const started = now();
     let stop = false;
     return ask((finish) => {
       screen([
         art(doc, "ill-wait", "hero wide"),
-        e("h2", { class: "center", role: "gas-waiting", text: "운영자가 가스값을 넣는 중…" }),
-        e("p", { class: "center muted", text: "보통 3~5 분 걸립니다. 이 화면을 열어 두면, 들어오는 대로 자동 바꾸기 켜기로 넘어갑니다." }),
-        e("p", { class: "center muted small", text: "화면을 닫아도 신청은 남아 있습니다. 나중에 다시 '자동 바꾸기 켜기'를 누르면 이어집니다." }),
+        e("h2", { class: "center", role: "gas-waiting", text: confirming ? "첫 수수료 지급 확인 중…" : "첫 수수료(가스값) 지급 중…" }),
+        gasSteps("advance", 1),
+        ...(confirming
+          ? [
+              e("p", { class: "center muted", text: "신청한 뒤 종이지갑에 BNB가 들어왔습니다. 운영자가 넣은 첫 수수료인지, 운영자의 '넣었음' 확인을 기다리는 중입니다(최대 7 분)." }),
+              e("p", { class: "center muted small", text: "확인이 오면 지급 확인 화면으로 넘어갑니다. 오지 않으면 내가 넣은 BNB로 보고 켜기를 이어 갑니다(이때는 갚을 것이 없습니다)." }),
+            ]
+          : [
+              e("p", { class: "center muted", text: "운영자가 종이지갑에 첫 수수료(BNB)를 넣는 중입니다. 보통 3~5 분 걸립니다." }),
+              e("p", { class: "center", role: "gas-no-sign", text: "지급이 끝나야(BNB가 들어오고 운영자의 '넣었음' 확인이 붙어야) 지급 확인과 거래 서명으로 넘어갑니다. 그 전에는 서명할 것이 없습니다." }),
+              e("p", { class: "center muted small", text: "화면을 닫아도 신청은 남아 있습니다. 나중에 다시 '자동 바꾸기 켜기'를 누르면 이 화면으로 이어집니다." }),
+            ]),
         button("cancel", "나중에 하기", () => {
           stop = true;
           finish(false);
@@ -6889,30 +6928,37 @@ function mountOwner(doc, deps = {}) {
     const choice = await ask((finish) => {
       screen([
         art(doc, "ill-bnb", "hero wide"),
-        e("h2", { class: "center", text: "가스값 먼저 받기" }),
-        e("p", { text: "종이지갑에 BNB가 없어서, 운영자가 거래 수수료(가스)만큼의 BNB를 먼저 넣어 줍니다. 아래 규칙을 보고 '가스값 받고 계속'을 누르세요." }),
+        e("h2", { class: "center", role: "advance-title", text: "첫 수수료(가스값) 받기" }),
+        e("p", { text: "종이지갑에 BNB가 없어서, 운영자가 거래 수수료(가스)만큼의 BNB를 먼저 넣어 줍니다(첫 수수료). 아래 순서와 규칙을 보고 '첫 수수료 받고 계속'을 누르세요." }),
+        gasSteps("advance", 0),
         e(
           "ol",
           { class: "rules", role: "advance-rules" },
           e("li", { text: `넣어 주는 양은 거래 두 번(승인 · 켜기)에 넉넉하게 잡은 가스값입니다. 지금 가스 값으로 약 ${fmtBnb(amount)} BNB입니다.` }),
           e("li", { text: `갚는 양: 넣어 준 양 전부가 아니라 계약에 정해진 가스값(${refundText(plan.gasPrice)})입니다. 자동 바꾸기를 켜는 순간 계약이 이번 이자(MOVN)에서 떼어 운영자에게 돌려줍니다. 따로 보낼 것은 없고, 쓰고 남은 BNB는 종이지갑에 남습니다.` }),
           e("li", { text: "종이지갑 하나에 한 번만 받을 수 있습니다. 운영자가 넣어 주는 가스값은 이것과 '다시 승인 가스값'을 합쳐 한 번뿐입니다." }),
-          e("li", { text: "받고 하루 안에 자동 바꾸기를 켜지 않으면, 그 종이지갑은 다시는 먼저 받을 수 없습니다." }),
+          e("li", { text: "받고 하루 안에 자동 바꾸기를 켜지 않으면, 그 종이지갑은 다시는 첫 수수료를 받을 수 없습니다." }),
           e("li", { text: "조건: 원금 WBMB 10 개 이상 · MOVN 1 개 이상 · BNB가 없는 종이지갑 · MOVN이 10모의 기적 이자를 보내는 주소에서 들어온 종이지갑만." }),
-          e("li", { text: "신청할 때 Trust Wallet이 '서명 요청'을 보여 줍니다. 거래가 아니라 글에 하는 서명이라 돈이 움직이지 않고, 이 종이지갑의 주인이 신청했다는 확인으로만 씁니다." }),
+          e("li", { text: "신청할 때 Trust Wallet이 '서명 요청'을 보여 줍니다. 거래가 아니라 글에 하는 서명이라 돈이 움직이지 않고, 이 종이지갑의 주인이 신청했다는 확인으로만 씁니다. 돈이 움직이는 거래 서명(승인 · 켜기)은 첫 수수료 지급이 끝난 뒤에만 나옵니다." }),
         ),
-        // One way forward (operator, 2026-11-17: "최대한 한방향으로"); own BNB is a note, not a fork.
-        button("apply", "가스값 받고 계속", () => finish("apply"), { strong: true }),
-        e("p", { class: "muted small", role: "own-bnb-note", text: "BNB를 직접 넣어 켜려면 '그만두기'를 누르고 내 종이지갑 주소로 BNB를 조금 넣은 뒤 다시 '자동 바꾸기 켜기'를 누르세요. BNB가 있으면 이 화면 없이 바로 켜집니다." }),
+        // The operator's gas is the way forward (2026-11-17: "최대한 한방향으로"); the owner's own
+        // BNB is a second, quieter button (2026-11-18: "첫 수수료 지급없이 신청 버튼도 만들어줘").
+        button("apply", "첫 수수료 받고 계속", () => finish("apply"), { strong: true }),
+        button("own-bnb", "첫 수수료 없이 내 BNB로 켜기", () => finish("own")),
+        e("p", { class: "muted small", role: "own-bnb-note", text: "'첫 수수료 없이'는 운영자에게 신청하지 않고, 내가 종이지갑에 넣은 BNB로 켭니다. 갚을 것이 없습니다." }),
         button("cancel", "그만두기", () => finish(null), { plain: true }),
       ]);
     });
+    if (choice === "own") return "own";
     if (choice !== "apply") return false;
     const eth = await ensureWallet();
     if (!eth) return false;
     const at = new Date(now()).toISOString();
     const text = advanceText({ card: st.card, contract: ctx.chain.contract, at });
-    waitingScreen();
+    waitingScreen({
+      title: "Trust Wallet에서 '서명 요청'을 확인해 주세요",
+      note: "신청 확인용 글 서명입니다. 돈이 움직이지 않습니다. 확인을 누르면 신청이 들어가고 '첫 수수료 지급 중' 화면으로 넘어갑니다.",
+    });
     let sig;
     try {
       sig = await eth.request({ method: "personal_sign", params: [hexlify(toUtf8Bytes(text)), st.account] });
@@ -6938,17 +6984,19 @@ function mountOwner(doc, deps = {}) {
    * 스탭"): the wallet's BNB read from the chain now, what it held before when known, and a
    * BscScan link to see the incoming transfer, before anything is signed. True to go on.
    */
-  async function gasArrivedScreen({ beforeWei = null, why, next }) {
+  async function gasArrivedScreen({ kind, beforeWei = null, why, next = "거래 서명으로 계속" }) {
     const nowWei = await work(async () => BigInt(await ctx.rpc.send("eth_getBalance", [st.card, "latest"])));
     const grew = beforeWei !== null && nowWei > beforeWei;
     return ask((finish) => {
       screen([
         art(doc, "ill-bnb", "hero wide"),
-        e("h2", { class: "center", role: "gas-arrived", text: "가스값이 들어왔습니다" }),
+        e("h2", { class: "center", role: "gas-arrived", text: kind === "reapprove" ? "다시 승인 가스값 지급 완료" : kind === "own" ? "BNB가 들어왔습니다" : "첫 수수료(가스값) 지급 완료" }),
+        // The check step: the third of the operator's steps, the second of one's own.
+        gasSteps(kind, kind === "own" ? 1 : 2),
         e("p", {
           class: "panel",
           role: "gas-amount",
-          text: `지금 종이지갑 BNB: ${fmtBnb(nowWei)} BNB${beforeWei === null ? "" : ` (신청 전 ${fmtBnb(beforeWei)} BNB${grew ? ` · 들어온 것 ${fmtBnb(nowWei - beforeWei)} BNB` : ""})`}`,
+          text: `지금 종이지갑 BNB: ${fmtBnb(nowWei)} BNB${beforeWei === null ? "" : ` (${kind === "own" ? "넣기 전" : "신청 전"} ${fmtBnb(beforeWei)} BNB${grew ? ` · 들어온 것 ${fmtBnb(nowWei - beforeWei)} BNB` : ""})`}`,
         }),
         e("p", { class: "muted small", text: why }),
         e("a", { role: "gas-link", href: addressLink(st.card), text: "BscScan에서 들어온 거래 보기" }),
@@ -6972,15 +7020,16 @@ function mountOwner(doc, deps = {}) {
       screen([
         art(doc, "ill-bnb", "hero wide"),
         e("h2", { class: "center", role: "reapprove-title", text: "다시 승인 가스값 받기" }),
-        e("p", { text: "종이지갑에 BNB가 모자라 다시 승인할 수 없어서, 운영자가 승인 한 번의 수수료(가스)만큼 BNB를 넣어 줍니다. 아래 규칙을 보고 '가스값 받고 계속'을 누르세요." }),
+        e("p", { text: "종이지갑에 BNB가 모자라 다시 승인할 수 없어서, 운영자가 승인 한 번의 수수료(가스)만큼 BNB를 넣어 줍니다. 아래 순서와 규칙을 보고 '가스값 받고 계속'을 누르세요." }),
+        gasSteps("reapprove", 0),
         e(
           "ol",
           { class: "rules", role: "reapprove-rules" },
           e("li", { text: `넣어 주는 양은 승인 한 번의 가스값입니다. 지금 가스 값으로 약 ${fmtBnb(amount)} BNB입니다.` }),
           e("li", { text: "갚을 것은 없습니다. 운영자가 냅니다." }),
-          e("li", { text: "종이지갑 하나에 한 번만 받을 수 있습니다. 처음 켤 때 '가스값 먼저 받기'를 받은 종이지갑은 받을 수 없습니다(운영자가 넣어 주는 가스값은 합쳐 한 번)." }),
+          e("li", { text: "종이지갑 하나에 한 번만 받을 수 있습니다. 처음 켤 때 '첫 수수료(가스값)'를 받은 종이지갑은 받을 수 없습니다(운영자가 넣어 주는 가스값은 합쳐 한 번)." }),
           e("li", { text: "조건: 자동 바꾸기가 켜져 있고 운영자에게 맡긴 종이지갑 · 원금 WBMB 10 개 이상 · BNB가 없는 종이지갑." }),
-          e("li", { text: "신청할 때 Trust Wallet이 '서명 요청'을 보여 줍니다. 거래가 아니라 글에 하는 서명이라 돈이 움직이지 않습니다." }),
+          e("li", { text: "신청할 때 Trust Wallet이 '서명 요청'을 보여 줍니다. 거래가 아니라 글에 하는 서명이라 돈이 움직이지 않습니다. 돈이 움직이는 거래 서명(다시 승인)은 가스값 지급이 끝난 뒤에만 나옵니다." }),
         ),
         button("apply", "가스값 받고 계속", () => finish("apply"), { strong: true }),
         e("p", { class: "muted small", role: "own-bnb-note", text: `BNB를 직접 넣으려면 '그만두기'를 누르고 내 종이지갑 주소로 BNB를 조금(지금 가스 값으로 약 ${fmtBnb(APPROVE_GAS_MAX * gasPrice)} BNB) 넣은 뒤 다시 '다시 승인하기'를 누르세요.` }),
@@ -6992,7 +7041,10 @@ function mountOwner(doc, deps = {}) {
     if (!eth) return;
     const at = new Date(now()).toISOString();
     const text = reapproveText({ card: st.card, contract: ctx.chain.contract, at });
-    waitingScreen();
+    waitingScreen({
+      title: "Trust Wallet에서 '서명 요청'을 확인해 주세요",
+      note: "신청 확인용 글 서명입니다. 돈이 움직이지 않습니다. 확인을 누르면 신청이 들어가고 '다시 승인 가스값 지급 중' 화면으로 넘어갑니다.",
+    });
     let sig;
     try {
       sig = await eth.request({ method: "personal_sign", params: [hexlify(toUtf8Bytes(text)), st.account] });
@@ -7011,8 +7063,8 @@ function mountOwner(doc, deps = {}) {
       return;
     }
     const arrived = await waitForBnb(APPROVE_GAS_MAX * gasPrice, {
-      title: "운영자가 다시 승인 가스값을 넣는 중…",
-      note: "들어오는 대로 다시 승인하기로 넘어갑니다.",
+      title: "다시 승인 가스값 지급 중…",
+      note: "들어오는 대로 지급 확인으로 넘어갑니다. 그 전에는 서명할 것이 없습니다.",
       again: "'다시 승인하기'",
     });
     if (arrived === null)
@@ -7022,13 +7074,64 @@ function mountOwner(doc, deps = {}) {
       );
     if (!arrived) return;
     const go = await gasArrivedScreen({
+      kind: "reapprove",
       beforeWei,
       why: "운영자가 승인 한 번의 가스값을 넣었습니다. 갚을 것은 없습니다. 아래 링크에서 운영자 지갑이 보낸 거래를 직접 볼 수 있습니다.",
-      next: "다시 승인하기로 계속",
     });
     if (!go) return;
+    // Fresh heads: the checked read must see the BNB that just came in.
+    await ctx.rpc.heads({ maxAgeMs: 0 }).catch(() => {});
     await work(() => loadState(st.card));
     await flowApprove();
+  }
+
+  /**
+   * "첫 수수료 없이" (operator, 2026-11-18): the owner puts in their own BNB. The page shows the
+   * wallet's address and how much, and waits on this screen until it is there: true, false
+   * (stopped) or null (30 minutes). Nothing goes to the box and nothing is paid back.
+   */
+  async function waitOwnBnb(plan) {
+    const limitMs = 30 * 60_000;
+    const everyMs = 15_000;
+    const started = now();
+    let stop = false;
+    return ask((finish) => {
+      screen([
+        art(doc, "ill-bnb", "hero wide"),
+        e("h2", { class: "center", role: "own-bnb-title", text: "첫 수수료 없이 내 BNB로 켜기" }),
+        gasSteps("own", 0),
+        e("p", { text: "운영자에게 신청하지 않습니다. 아래 내 종이지갑 주소로 BNB(BNB 스마트 체인)를 넣어 주세요. 거래 두 번(승인 · 켜기)의 가스값이고, 갚을 것은 없습니다." }),
+        e(
+          "div",
+          { class: "panel" },
+          e("div", { class: "row" }, e("span", { text: "넣을 양" }), e("span", { class: "num", role: "own-bnb-need", text: `${fmtBnb(plan.directNeedWei)} BNB 이상` })),
+          e("div", { class: "row" }, e("span", { text: "지금 있는 양" }), e("span", { class: "num", role: "own-bnb-have", text: `${fmtBnb(plan.state.bnb)} BNB` })),
+        ),
+        e("p", { class: "label", text: "내 종이지갑 주소" }),
+        e("p", { class: "bigaddr", role: "own-bnb-address", text: spaced(st.card) }),
+        e("p", { class: "warn", text: "내 종이지갑 주소로만 넣으세요. 다른 주소로 BNB를 보내라는 곳은 가짜입니다." }),
+        e("p", { class: "center", role: "own-bnb-wait", text: "들어오면 저절로 확인 화면으로 넘어갑니다(15 초마다 확인). 그 전에는 서명할 것이 없습니다." }),
+        button("cancel", "나중에 하기", () => {
+          stop = true;
+          finish(false);
+        }, { plain: true }),
+      ]);
+      const look = async () => {
+        if (stop || st.stopped) return;
+        try {
+          const bnb = BigInt(await ctx.rpc.send("eth_getBalance", [st.card, "latest"]));
+          if (bnb >= plan.directNeedWei) return finish(true);
+        } catch {
+          // a missed look is tried again
+        }
+        if (now() - started >= limitMs) {
+          stop = true;
+          return finish(null);
+        }
+        setTimeout(() => look().catch(() => {}), everyMs);
+      };
+      setTimeout(() => look().catch(() => {}), 2_000);
+    });
   }
 
   /** Waits, on a screen of its own, until the wallet holds `needWei` BNB: true, false (stopped) or null (20 minutes). */
@@ -7041,6 +7144,7 @@ function mountOwner(doc, deps = {}) {
       screen([
         art(doc, "ill-wait", "hero wide"),
         e("h2", { class: "center", role: "gas-waiting", text: title }),
+        gasSteps("reapprove", 1),
         e("p", { class: "center muted", text: `보통 3~5 분 걸립니다. 이 화면을 열어 두면, ${note}` }),
         e("p", { class: "center muted small", text: `화면을 닫아도 신청은 남아 있습니다. 나중에 다시 ${again}를 누르면 이어집니다.` }),
         button("cancel", "나중에 하기", () => {
@@ -7072,7 +7176,7 @@ function mountOwner(doc, deps = {}) {
     if (arrived === null)
       await messageScreen(
         "아직 들어오지 않았습니다",
-        "20 분이 지나도 가스값이 들어오지 않았습니다. 조건에 맞지 않았거나 오늘 넣을 수 있는 양이 다 찼을 수 있습니다. 나중에 다시 '자동 바꾸기 켜기'를 누르면 이어서 확인합니다.",
+        "20 분이 지나도 첫 수수료(가스값)가 들어오지 않았습니다. 조건에 맞지 않았거나 오늘 넣을 수 있는 양이 다 찼을 수 있습니다. 서명한 거래는 없습니다. 나중에 다시 '자동 바꾸기 켜기'를 누르면 이어서 확인합니다.",
       );
     return false;
   }
@@ -7112,11 +7216,31 @@ function mountOwner(doc, deps = {}) {
     if (recipient === null) return;
     const limit = DEFAULT_MAX_MOVN;
     const planNow = () => work(() => planRegister(ctx, st.card, { recipient, harvester, limit, defaultHarvester: st.defaultHarvester }));
+    // The gas is in (the waiting screen saw it on one node, at its latest block); the checked
+    // read is at the slower node's head, kept for a few seconds — it can still show the wallet
+    // before the gas. Read again with fresh heads until it sees the BNB too (a minute at most).
+    const planSeeingGas = async () => {
+      for (let i = 0; ; i += 1) {
+        await ctx.rpc.heads({ maxAgeMs: 0 }).catch(() => {});
+        const p = await planNow();
+        if (p.path === "direct" || i >= 20) return p;
+        await sleep(3000);
+      }
+    };
     let plan = await planNow();
+    // The owner's own BNB, put in on the "첫 수수료 없이" screen: what the wallet held before it.
+    let ownBefore = null;
     if (plan.path === "box") {
-      // No BNB: apply for the gas, wait for it, then go on turning on with the operator's BNB.
-      if (!(await flowAdvance(plan))) return;
-      plan = await planNow();
+      // No BNB: apply for the gas (or put in one's own), wait for it, then go on turning on.
+      const way = await flowAdvance(plan);
+      if (way === "own") {
+        const arrived = await waitOwnBnb(plan);
+        if (arrived === null)
+          await messageScreen("아직 들어오지 않았습니다", "30 분이 지나도 BNB가 들어오지 않았습니다. 서명한 거래는 없습니다. BNB를 넣은 뒤 다시 '자동 바꾸기 켜기'를 누르면 이어집니다.");
+        if (!arrived) return;
+        ownBefore = plan.state.bnb;
+      } else if (!way) return;
+      plan = await planSeeingGas();
     }
     st.state = plan.state;
     st.checkedBy = plan.checkedBy;
@@ -7140,18 +7264,38 @@ function mountOwner(doc, deps = {}) {
     if (ctx.boxUrl && st.defaultHarvester) {
       const advance = await work(() => readAdvance(ctx.boxUrl, st.card, advanceOpts()));
       if (advance === null) {
-        await messageScreen("지금은 켤 수 없습니다", "신청함이 답하지 않아, 이 종이지갑이 가스값을 먼저 받았는지 확인하지 못했습니다. 잠시 뒤 다시 해 주세요.");
+        await messageScreen("지금은 켤 수 없습니다", "신청함이 답하지 않아, 이 종이지갑이 첫 수수료(가스값)를 받았는지 확인하지 못했습니다. 잠시 뒤 다시 해 주세요.");
         return;
       }
       if (advance.funded) selfFunded = false;
+      else if (advance.applied) {
+        // Applied, BNB in, no mark yet: the operator's BNB may have just gone in with its mark
+        // still on the way. Nothing is signed until that is settled ("지급 확인 중").
+        const marked = await waitForGas(plan, { confirming: true });
+        if (marked === false) return;
+        if (marked === true) selfFunded = false;
+        plan = await planSeeingGas();
+        if (plan.path !== "direct") {
+          await messageScreen("지금은 켤 수 없습니다", "종이지갑의 BNB가 달라졌습니다. 잠시 뒤 다시 '자동 바꾸기 켜기'를 눌러 주세요.");
+          return;
+        }
+      }
     }
     // The operator's gas is in the wallet (the box's mark is signed by its key): shown before signing.
     if (!selfFunded) {
       const go = await gasArrivedScreen({
+        kind: "advance",
         // What it held before is not known here (the plan already reads the BNB that came in).
         beforeWei: null,
         why: `운영자가 넣은 가스값입니다(신청함의 '넣었음' 표시를 운영자 지갑의 서명으로 확인했습니다). 켜는 순간 계약에 정해진 가스값(${refundText(plan.gasPrice)})만 이번 이자(MOVN)에서 운영자에게 돌려주고, 쓰고 남은 BNB는 종이지갑에 남습니다. 아래 링크에서 운영자 지갑이 보낸 거래를 직접 볼 수 있습니다.`,
-        next: "자동 바꾸기 켜기로 계속",
+      });
+      if (!go) return;
+    } else if (ownBefore !== null) {
+      // The owner's own BNB: the same check step before anything is signed.
+      const go = await gasArrivedScreen({
+        kind: "own",
+        beforeWei: ownBefore,
+        why: "내가 넣은 BNB입니다. 운영자에게 신청하지 않았으므로 갚을 것이 없습니다. 아래 링크에서 들어온 거래를 직접 볼 수 있습니다.",
       });
       if (!go) return;
     }
