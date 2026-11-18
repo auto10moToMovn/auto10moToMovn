@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-eLcyeZ/2FowFQTlxaPorssGGWDC28onw5jPateMphl4='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-PulqkVzGUcDj2jYDVVNLMoKEO/JifRN+YDuYeL2lf80='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -2995,7 +2995,19 @@ function renderOwner(doc, root, view) {
   root.replaceChildren(...nodes);
 }
 
-return { h, art, rowsTable, renderOwner };
+/**
+ * True when the page runs inside another page's frame (`g`: the window). A frame of another
+ * site cannot even be asked about its top: that counts as framed too.
+ */
+function isFramed(g) {
+  try {
+    return g?.top !== undefined && g.top !== g.self;
+  } catch {
+    return true;
+  }
+}
+
+return { h, art, rowsTable, renderOwner, isFramed };
 })();
 __m["web/src/lib/params.mjs"] = (() => {
 // Every number the page uses, in one place (plan: Global Constraints). MOVN and
@@ -5642,6 +5654,10 @@ __m["scripts/lib/relay.mjs"] = (() => {
 // trusted: anyone can post to it, and anyone can read it (it holds wallet addresses and
 // signatures, nothing secret). The relay keeps a message for 12 hours.
 //
+// Every row and every mark carries its wallet's address (lower case) as the relay's tag, so
+// the page asks for its own wallet's rows alone (…&tags=<address>): rows that others pile
+// into the topic never reach it. The operator reads the whole topic.
+//
 // Shared by the page (web/src/lib/box.mjs) and the operator (scripts/operator/box.mjs).
 const { getAddress, isAddress, verifyMessage } = globalThis.ethers;
 
@@ -5665,12 +5681,20 @@ function isRelayBox(boxUrl) {
 }
 
 const base = (boxUrl) => String(boxUrl).replace(/\/+$/, "");
-/** Where a row is posted. */
-const relayPostUrl = (boxUrl) => base(boxUrl);
-/** The cached rows since `sinceMs` (all of them when null), oldest first, as one answer. */
-function relayPollUrl(boxUrl, sinceMs = null) {
+/** The relay tag of a wallet: its whole address in lower case. Anything else is refused. */
+function tagOf(card) {
+  if (typeof card !== "string" || !isAddress(card)) throw new Error("신청함 태그로 쓸 지갑 주소가 아닙니다.");
+  return getAddress(card).toLowerCase();
+}
+/** Where a row is posted; with `card`, under that wallet's tag. */
+const relayPostUrl = (boxUrl, card = null) => (card === null ? base(boxUrl) : `${base(boxUrl)}?tags=${tagOf(card)}`);
+/**
+ * The cached rows since `sinceMs` (all of them when null), oldest first, as one answer;
+ * with `card`, only the rows under that wallet's tag.
+ */
+function relayPollUrl(boxUrl, sinceMs = null, card = null) {
   const since = sinceMs === null || !Number.isFinite(sinceMs) ? "all" : String(Math.max(0, Math.floor(sinceMs / 1000)));
-  return `${base(boxUrl)}/json?poll=1&since=${since}`;
+  return `${base(boxUrl)}/json?poll=1&since=${since}${card === null ? "" : `&tags=${tagOf(card)}`}`;
 }
 
 /**
@@ -5744,12 +5768,14 @@ __m["web/src/lib/box.mjs"] = (() => {
 // nothing was sent.
 const { getAddress, isAddress } = globalThis.ethers;
 const { BOX_MAX_BYTES } = __m["web/src/lib/params.mjs"];
-const { ADVANCE_KIND, REAPPROVE_KIND, advanceShapeError } = __m["scripts/lib/advance.mjs"];
+const { ADVANCE_KIND, REAPPROVE_KIND, advanceShapeError, advanceSignedByCard } = __m["scripts/lib/advance.mjs"];
 const { FUNDED_KIND, fundedBy, isRelayBox, relayPollUrl, relayPostUrl, relayRows, relayTimeAgrees } = __m["scripts/lib/relay.mjs"];
 
 const ID = /^(0x[0-9a-f]{40}):(\d{4}-\d{2}-\d{2})(:reapprove)?$/;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 const FETCH_TIMEOUT_MS = 15_000;
+/** One wallet's own rows on a relay (asked for by its tag) are read up to this many bytes. */
+const RELAY_CARD_MAX_BYTES = 8 * BOX_MAX_BYTES;
 
 /** What a POST /apply that got no usable answer says. Nothing was sent on chain. */
 const RETRY_MESSAGE = "신청함이 답하지 않습니다. 잠시 뒤 다시 해 주세요. 아무것도 보내지 않았습니다.";
@@ -5787,12 +5813,35 @@ const initOf = (method, body) => ({
   signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
 });
 
-/** The answer's text, or null when it is too large to be the box's. */
-async function textOf(res) {
+/**
+ * The answer's text, or null when it is larger than `maxBytes`. A body that comes in pieces
+ * is dropped as soon as it passes that size: the rest is never taken.
+ */
+async function textOf(res, maxBytes = BOX_MAX_BYTES) {
   const len = Number(res.headers?.get?.("content-length"));
-  if (Number.isFinite(len) && len > BOX_MAX_BYTES) return null;
-  const text = await res.text();
-  return typeof text === "string" && text.length <= BOX_MAX_BYTES ? text : null;
+  if (Number.isFinite(len) && len > maxBytes) {
+    await res.body?.cancel?.().catch(() => {});
+    return null;
+  }
+  if (!res.body?.getReader) {
+    const text = await res.text();
+    return typeof text === "string" && text.length <= maxBytes ? text : null;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > maxBytes) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
 }
 
 /**
@@ -5872,7 +5921,7 @@ async function postApplication(boxUrl, item, { fetchImpl = globalThis.fetch } = 
   const relay = isRelayBox(boxUrl);
   let res;
   try {
-    res = await fetchImpl(relay ? relayPostUrl(boxUrl) : routeOf(boxUrl, "apply"), initOf("POST", JSON.stringify(item)));
+    res = await fetchImpl(relay ? relayPostUrl(boxUrl, item?.card) : routeOf(boxUrl, "apply"), initOf("POST", JSON.stringify(item)));
   } catch {
     return retry;
   }
@@ -5949,16 +5998,19 @@ async function fetchApplications(boxUrl, { since, fetchImpl = globalThis.fetch }
   return { items, bad };
 }
 
-/** The relay's cached rows since `sinceMs`; throws a plain message when it cannot be read. */
-async function relayRead(boxUrl, sinceMs, fetchImpl) {
+/**
+ * The relay's cached rows since `sinceMs` (with `card`, that wallet's own rows alone);
+ * throws a plain message when it cannot be read.
+ */
+async function relayRead(boxUrl, sinceMs, fetchImpl, { card = null, maxBytes = BOX_MAX_BYTES } = {}) {
   let res;
   try {
-    res = await fetchImpl(relayPollUrl(boxUrl, sinceMs), initOf("GET"));
+    res = await fetchImpl(relayPollUrl(boxUrl, sinceMs, card), initOf("GET"));
   } catch {
     throw new Error("신청함에 닿지 않습니다. 잠시 뒤 다시 해 주세요.");
   }
   if (res.status !== 200) throw new Error(`신청함이 HTTP ${res.status} 코드로 답했습니다.`);
-  const text = await textOf(res);
+  const text = await textOf(res, maxBytes);
   if (text === null) throw new Error("신청함의 답이 너무 큽니다. 읽지 않았습니다.");
   try {
     return relayRows(text);
@@ -5968,26 +6020,50 @@ async function relayRead(boxUrl, sinceMs, fetchImpl) {
 }
 
 /**
- * readAdvance on a relay: applied = a well-formed row of this wallet whose time agrees with
- * the relay's; funded = a mark for this wallet signed by `operator` (the page's pressing
- * wallet) for `contract`. Anyone can post to a relay, so an unsigned or wrongly signed mark
- * counts for nothing.
+ * readAdvance on a relay: applied = a well-formed row of this wallet, signed by the wallet
+ * itself for `contract`, whose time agrees with the relay's; funded = a mark for this wallet
+ * signed by `operator` (the page's pressing wallet) for `contract`. Anyone can post to a
+ * relay, so an unsigned or wrongly signed row or mark counts for nothing.
+ *
+ * Only the rows under this wallet's tag are asked for, so a topic that others filled is no
+ * obstacle. Rows posted without a tag (by a page or a program older than 2026-11-18, for the
+ * 12 hours the relay keeps them) are looked for in the whole topic when the tag gave nothing;
+ * a whole topic that cannot be read then leaves the tag's answer as it is.
  */
 async function readRelayAdvance(boxUrl, card, { fetchImpl, contract, operator }) {
-  let rows;
+  const who = getAddress(card);
+  const found = (rows) => ({
+    // Only a "gas first" row: a re-approve row of the same wallet is another application.
+    applied: rows.some(
+      (r) => r.body?.card === who && r.body.kind === ADVANCE_KIND && appItemShapeError(r.body) === null && relayTimeAgrees(r) && advanceSignedByCard(r.body, contract),
+    ),
+    funded: Boolean(contract && operator) && rows.some((r) => fundedBy(r.body, { card: who, contract, operator })),
+  });
+  let own;
   try {
-    rows = await relayRead(boxUrl, null, fetchImpl);
+    own = found(await relayRead(boxUrl, null, fetchImpl, { card: who, maxBytes: RELAY_CARD_MAX_BYTES }));
   } catch {
     return null;
   }
-  const who = getAddress(card);
-  // Only a "gas first" row: a re-approve row of the same wallet is another application.
-  const applied = rows.some((r) => r.body?.card === who && r.body.kind === ADVANCE_KIND && appItemShapeError(r.body) === null && relayTimeAgrees(r));
-  const funded = Boolean(contract && operator) && rows.some((r) => fundedBy(r.body, { card: who, contract, operator }));
-  return { applied, funded };
+  if (own.applied || own.funded) return own;
+  try {
+    return found(await relayRead(boxUrl, null, fetchImpl));
+  } catch {
+    return own;
+  }
 }
 
-return { RETRY_MESSAGE, appItemShapeError, readPageConfig, readBoxConfig, readAdvance, postApplication, fetchApplications };
+/**
+ * The pressing wallet new wallets register with: the one the page's own config.json names.
+ * A box's own word (GET <boxUrl>/config) counts only when the page names none, so a box
+ * that someone else got hold of cannot put its own wallet in the place of the page's.
+ * @returns {string|null}
+ */
+function harvesterOf({ page = null, box = null } = {}) {
+  return page ?? box ?? null;
+}
+
+return { RETRY_MESSAGE, appItemShapeError, readPageConfig, readBoxConfig, readAdvance, postApplication, fetchApplications, harvesterOf };
 })();
 __m["web/src/lib/fingerprint.mjs"] = (() => {
 // The page's own fingerprint: the sha256 of the bytes the server gave for this
@@ -6026,7 +6102,7 @@ __m["web/src/owner.mjs"] = (() => {
 // goes through ctx, which the page marks busy while it waits — so a person (and a
 // test) can tell "waiting for the chain" from "waiting for me".
 const { MaxUint256, ZeroAddress, getAddress, hexlify, toUtf8Bytes } = globalThis.ethers;
-const { art, h, rowsTable } = __m["web/src/lib/dom.mjs"];
+const { art, h, isFramed, rowsTable } = __m["web/src/lib/dom.mjs"];
 const { createPageCtx } = __m["web/src/lib/ctx.mjs"];
 const { entrustedTo, nextTake, readCardChecked } = __m["web/src/lib/card.mjs"];
 const { RpcDownError } = __m["web/src/lib/rpc.mjs"];
@@ -6044,7 +6120,7 @@ const { browserBackLink, createWcWallet, pairsInOneVisit, trustWcLink, WC_PROJEC
 const { browserMine } = __m["web/src/lib/mine.mjs"];
 const { forAddressStep, looksLikeKey, parseAddressText, parseQrText, KEY_REFUSED_MESSAGE } = __m["web/src/lib/qr-text.mjs"];
 const { forbiddenRecipients } = __m["web/src/lib/inputs.mjs"];
-const { postApplication, readAdvance, readBoxConfig, readPageConfig } = __m["web/src/lib/box.mjs"];
+const { harvesterOf, postApplication, readAdvance, readBoxConfig, readPageConfig } = __m["web/src/lib/box.mjs"];
 const { harvestFloor } = __m["web/src/lib/floor.mjs"];
 const { pageFingerprint } = __m["web/src/lib/fingerprint.mjs"];
 const { APPROVE_GAS_MAX, DEFAULT_MAX_MOVN, HARVEST_GAS_MAX, MIN_REGISTER_MOVN, MOVN, REAPPROVE_GAS, REGISTER_GAS_MAX } = __m["web/src/lib/params.mjs"];
@@ -6263,7 +6339,10 @@ function mountOwner(doc, deps = {}) {
     if (config?.defaultHarvester) st.defaultHarvester = config.defaultHarvester;
     if (!config?.boxUrl) return;
     try {
-      st.defaultHarvester = (await readBoxConfig(config.boxUrl, { fetchImpl: ctx.fetchImpl })).defaultHarvester ?? config?.defaultHarvester ?? null;
+      st.defaultHarvester = harvesterOf({
+        page: config?.defaultHarvester ?? null,
+        box: (await readBoxConfig(config.boxUrl, { fetchImpl: ctx.fetchImpl })).defaultHarvester,
+      });
       // A box that names its pressing wallet takes "gas first" applications.
       if (st.defaultHarvester) ctx.boxUrl = config.boxUrl;
     } catch {
@@ -7999,6 +8078,9 @@ function qrDataUrl(g, text) {
   }
 }
 
+/** What a page opened inside another site's frame says, and nothing else. */
+const FRAMED_TEXT = "이 페이지는 다른 사이트 안에서는 열리지 않습니다. 브라우저 주소창에 이 페이지의 주소를 직접 넣어 열어 주세요.";
+
 /** The page's own dependencies in a browser (or in a test's vm context). */
 function defaultDeps(g) {
   const announced = watchWallets(g);
@@ -8023,7 +8105,10 @@ function defaultDeps(g) {
 }
 
 if (typeof document !== "undefined") {
-  mountOwner(document, defaultDeps(globalThis));
+  // Inside another site's frame nothing is shown and nothing can be pressed: that site could
+  // lay its own picture over the buttons.
+  if (isFramed(globalThis)) document.getElementById("app")?.replaceChildren(document.createTextNode(FRAMED_TEXT));
+  else mountOwner(document, defaultDeps(globalThis));
 }
 
 return { mountOwner, defaultDeps };
