@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-yFPoigprpOjng2hEd8/DRtoPHAtQ6LoiPqbXYdPQYBw='; style-src 'sha256-ycnIkd074dnxDrrnh4UvZer1Dt+97GJmOXX28E05stA='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-DOFD3WidxXWlorHNNp5xFYznvXXg/OwSpDdOpWQ42xM='; style-src 'sha256-ycnIkd074dnxDrrnh4UvZer1Dt+97GJmOXX28E05stA='; img-src data:; connect-src https: wss://relay.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -5188,6 +5188,63 @@ function createWcWallet({ lib, projectId, pageUrl }) {
 
 return { WC_PROJECT_ID, WC_RELAY, trustWcLink, sessionAccounts, createWcWallet };
 })();
+__m["web/src/lib/mine.mjs"] = (() => {
+// The one thing the page keeps in the browser: the public address of the paper wallet
+// it showed last, so the next visit opens straight to it, read from the chain alone,
+// with no wallet app asked (operator, 2026-11-18: "변환한 것을 웹페이지로만 보여주고
+// 월렛앱으로 자꾸 연동하면 안 됨"). An address is public on the chain; no key, signature,
+// application or amount is ever written. One key, one value, nothing else — the build
+// check refuses any other use of browser storage in the page's own code.
+const { getAddress, isAddress } = globalThis.ethers;
+
+const MINE_KEY = "auto10moToMovn.mine";
+
+/**
+ * The remembered address in `g`'s browser storage. Every read and write may throw (a
+ * private window, blocked site data) or find nothing: the page then just has no
+ * remembered wallet, and works as before.
+ * @returns {{get: () => string|null, set: (address: string) => void, clear: () => void}}
+ */
+function browserMine(g) {
+  let ls = null;
+  try {
+    ls = g.localStorage ?? null;
+  } catch {
+    ls = null;
+  }
+  return memoryMine(ls);
+}
+
+/** The same over any `{getItem, setItem, removeItem}` (the tests' stand-in), or nothing at all. */
+function memoryMine(store) {
+  return {
+    get() {
+      try {
+        const value = store?.getItem(MINE_KEY);
+        return typeof value === "string" && isAddress(value) ? getAddress(value) : null;
+      } catch {
+        return null;
+      }
+    },
+    set(address) {
+      try {
+        if (isAddress(String(address))) store?.setItem(MINE_KEY, getAddress(String(address)));
+      } catch {
+        // Nothing kept: the next visit starts at the first screen.
+      }
+    },
+    clear() {
+      try {
+        store?.removeItem(MINE_KEY);
+      } catch {
+        // Nothing there to clear.
+      }
+    },
+  };
+}
+
+return { MINE_KEY, browserMine, memoryMine };
+})();
 __m["web/src/lib/qr-text.mjs"] = (() => {
 // What a pasted text is. The page only ever wants an address. A private key is
 // recognized for one reason: to refuse it in plain words and forget it — nothing
@@ -5785,7 +5842,8 @@ __m["web/src/owner.mjs"] = (() => {
 //
 // The page never takes a private key, a recovery phrase or a key QR — there is no
 // field for one, and a key pasted where an address goes is refused and forgotten.
-// Nothing is stored: no browser storage of any kind, no cookie. Every chain touch
+// Nothing is stored but one public address — the paper wallet shown last (lib/mine.mjs),
+// so the next visit opens straight to it with no wallet app asked. Every chain touch
 // goes through ctx, which the page marks busy while it waits — so a person (and a
 // test) can tell "waiting for the chain" from "waiting for me".
 const { MaxUint256, ZeroAddress, getAddress, hexlify, toUtf8Bytes } = globalThis.ethers;
@@ -5804,6 +5862,7 @@ const { CHANGE_GAS_MAX, approveCall, harvestSelfCall, prepareCall, setHarvesterC
 const { walletSender } = __m["web/src/lib/send.mjs"];
 const { connectWallet, walletAccounts, describeWallets, findWallet, hasOtherWallet, isUserRejection, TRUST_INSTALL_LINK, trustOpenLink, watchWallets } = __m["web/src/lib/wallet.mjs"];
 const { createWcWallet, trustWcLink, WC_PROJECT_ID } = __m["web/src/lib/wc.mjs"];
+const { browserMine } = __m["web/src/lib/mine.mjs"];
 const { forAddressStep, looksLikeKey, parseAddressText, parseQrText, KEY_REFUSED_MESSAGE } = __m["web/src/lib/qr-text.mjs"];
 const { forbiddenRecipients } = __m["web/src/lib/inputs.mjs"];
 const { postApplication, readAdvance, readBoxConfig, readPageConfig } = __m["web/src/lib/box.mjs"];
@@ -5870,7 +5929,7 @@ const txLink = (hash) => `https://bscscan.com/tx/${hash}`;
 
 /**
  * Mounts the owner page into `doc`'s #app. `deps`: { ctx, readPageConfig, now,
- * wallet, otherWallet, pageUrl, fingerprint } — everything the tests replace. `wallet()` answers the
+ * wallet, wc, mine, otherWallet, pageUrl, fingerprint } — everything the tests replace. `wallet()` answers the
  * wallet app's provider (or null) each time it is asked.
  * @returns {{stop: () => void}}
  */
@@ -5885,6 +5944,8 @@ function mountOwner(doc, deps = {}) {
   const wc = deps.wc ?? null;
   // The wallet app whose browser this is, else the app connected from outside, else none.
   const getWallet = () => ownWallet() ?? (wc?.connected() ? wc : null);
+  // The paper wallet this browser showed last: opened at once next time, read from the chain alone.
+  const remembered = deps.mine ?? { get: () => null, set() {}, clear() {} };
   const drawQr = deps.qr ?? (() => null);
   const onPhone = deps.phone ?? (() => false);
   const otherWallet = deps.otherWallet ?? (() => false);
@@ -5917,6 +5978,8 @@ function mountOwner(doc, deps = {}) {
     // Whether the operator may press the open wallet (card.mjs entrustedTo): null = not known.
     entrusted: true,
     account: null,
+    // The paper wallet opened as the person's own ("내 종이지갑"), connected or remembered.
+    mineCard: null,
     painted: 0,
     eth: null,
     extraDone: false,
@@ -6114,8 +6177,7 @@ function mountOwner(doc, deps = {}) {
       tab("mine", "chip", "내 종이지갑", () => {
         st.card = null;
         st.view = null;
-        if (getWallet() !== null) connectAndOpen().catch(showError);
-        else startScreen();
+        openMine().catch(showError);
       }),
       tab("check", "ic-eye", "지갑 확인", () => addressScreen()),
     );
@@ -6163,35 +6225,49 @@ function mountOwner(doc, deps = {}) {
     ]);
   }
 
-  /** Connects the app from outside and opens the paper wallet it answers with. */
+  /**
+   * Asks the app, from outside, to connect: {account} once the person said yes there,
+   * {cancelled} after 그만두기 on the page, {err} when the app said no or the relay failed.
+   */
+  function wcLink() {
+    return new Promise((resolve) => {
+      let over = false;
+      const end = (value) => {
+        if (over) return;
+        over = true;
+        resolve(value);
+      };
+      const cancel = () => end({ cancelled: true });
+      screen([
+        art(doc, "ill-phone", "hero"),
+        e("h2", { class: "center", role: "opening", text: "연결을 준비하는 중…" }),
+        e("p", { class: "muted small center", text: "몇 초 걸립니다. 오래 걸리면 그만두고 잠시 뒤에 다시 해 주세요." }),
+        button("back", "그만두기", cancel),
+      ]);
+      wc.connect({ onUri: (uri) => !over && wcScreen(uri, cancel) })
+        .then((account) => end({ account: getAddress(account) }))
+        .catch((err) => end({ err }));
+    });
+  }
+
+  /** From the first screen: connects the app from outside and opens the paper wallet it answers with. */
   async function wcConnect() {
-    let cancelled = false;
-    const cancel = () => {
-      cancelled = true;
+    const linked = await wcLink();
+    if (linked.cancelled) {
       startScreen();
-    };
-    screen([
-      art(doc, "ill-phone", "hero"),
-      e("h2", { class: "center", role: "opening", text: "연결을 준비하는 중…" }),
-      e("p", { class: "muted small center", text: "몇 초 걸립니다. 오래 걸리면 그만두고 잠시 뒤에 다시 해 주세요." }),
-      button("back", "그만두기", cancel),
-    ]);
-    let account;
-    try {
-      account = await wc.connect({ onUri: (uri) => !cancelled && wcScreen(uri, cancel) });
-    } catch (err) {
-      if (cancelled) return;
-      if (isUserRejection(err)) {
+      return;
+    }
+    if (linked.err) {
+      if (isUserRejection(linked.err)) {
         startScreen("Trust Wallet에서 연결을 승인하지 않았습니다. 다시 누르고, 앱에 뜨는 창에서 '연결'을 눌러 주세요.");
         return;
       }
-      const text = String(err?.shortMessage ?? err?.message ?? err).slice(0, 200);
+      const text = String(linked.err?.shortMessage ?? linked.err?.message ?? linked.err).slice(0, 200);
       startScreen(`지갑과 연결하지 못했습니다. 잠시 뒤에 다시 해 주세요. (까닭: ${text})`);
       return;
     }
-    if (cancelled) return;
-    st.account = getAddress(account);
-    await openCard(st.account);
+    st.account = linked.account;
+    await openAsMine(linked.account);
   }
 
   async function wcDisconnect() {
@@ -6235,8 +6311,8 @@ function mountOwner(doc, deps = {}) {
         { class: "steps" },
         stepRow("st-wallet", "① Trust Wallet에 종이지갑 넣기", "종이지갑마다 한 번만, Trust Wallet 앱 안에서만 합니다."),
         wc && !hasWallet
-          ? stepRow("st-open", "② 이 페이지에서 지갑 연결 누르기", "이 페이지를 즐겨찾기에 넣어 두면 가짜 페이지를 피합니다. 연결하면 내 종이지갑이 바로 나옵니다.")
-          : stepRow("st-open", "② 앱 안의 브라우저로 이 페이지 열기", "즐겨찾기에 넣어 두면 가짜 페이지를 피합니다. 열면 내 종이지갑이 바로 나옵니다."),
+          ? stepRow("st-open", "② 이 페이지에서 지갑 연결 누르기", "이 페이지를 즐겨찾기에 넣어 두면 가짜 페이지를 피합니다. 연결하면 내 종이지갑이 바로 나오고, 다음부터는 연결 없이 바로 나옵니다.")
+          : stepRow("st-open", "② 앱 안의 브라우저로 이 페이지 열기", "즐겨찾기에 넣어 두면 가짜 페이지를 피합니다. 한 번 열면 다음부터는 연결을 묻지 않고 내 종이지갑이 바로 나옵니다."),
         stepRow("st-on", "③ 자동 바꾸기 켜기", "MOVN 사용 승인과 등록, 서명 두 번으로 켭니다. 종이지갑에 BNB가 없으면 가스값 신청 서명이 한 번 더 있습니다."),
       ),
       feeBox(),
@@ -6271,14 +6347,45 @@ function mountOwner(doc, deps = {}) {
     ]);
   }
 
-  /** Opening with Trust Wallet: straight to the paper wallet open in the app; "no" in the app lands on the start screen. */
-  async function bootWithWallet() {
-    screen([
-      art(doc, "ill-phone", "hero"),
-      e("h2", { class: "center", role: "opening", text: "Trust Wallet에서 종이지갑을 여는 중…" }),
-      e("p", { class: "muted small center", text: "앱이 연결을 물으면 '연결'을 눌러 주세요. 개인키는 묻지 않습니다." }),
-    ]);
-    await connectAndOpen();
+  /**
+   * The wallet app's address when it gives it without showing the person anything (a page it
+   * was connected to before), else null. Never eth_requestAccounts: that is the app's
+   * "connect?" window, asked only when the person presses a button that needs it.
+   */
+  async function quietAccount() {
+    const eth = getWallet();
+    if (!eth) return null;
+    try {
+      const accounts = (await work(() => eth.request({ method: "eth_accounts" }))) ?? [];
+      return accounts.length > 0 ? getAddress(String(accounts[0])) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Opens `address` as the person's own paper wallet ("내 종이지갑"). */
+  async function openAsMine(address) {
+    st.mineCard = getAddress(address);
+    await openCard(st.mineCard);
+  }
+
+  /**
+   * "내 종이지갑" with nothing shown by the wallet app: the address it gives quietly, else the
+   * paper wallet this browser showed last, else the first screen.
+   */
+  async function openMine() {
+    const account = await quietAccount();
+    if (account) {
+      st.account = account;
+      await openAsMine(account);
+      return;
+    }
+    const kept = remembered.get();
+    if (kept) {
+      await openAsMine(kept);
+      return;
+    }
+    startScreen();
   }
 
   async function connectAndOpen() {
@@ -6306,7 +6413,7 @@ function mountOwner(doc, deps = {}) {
       return;
     }
     st.account = getAddress(account);
-    await openCard(st.account);
+    await openAsMine(st.account);
   }
 
   /** No Trust Wallet here: open this page in the app, or install the app first. */
@@ -6370,6 +6477,8 @@ function mountOwner(doc, deps = {}) {
   async function openCard(address) {
     st.card = getAddress(address);
     st.view = null;
+    // Shown once, opened at once the next time — from the chain alone, no wallet app asked.
+    remembered.set(st.card);
     await whenVisible();
     let loaded;
     try {
@@ -6443,8 +6552,12 @@ function mountOwner(doc, deps = {}) {
   }
 
   function walletLine() {
+    return [connectionLine(), keptLine()];
+  }
+
+  function connectionLine() {
     if (getWallet() === null)
-      return e("p", { class: "muted small center", role: "wallet-line", text: wc ? "지금은 보기만 하는 중입니다. 서명하려면 '내 종이지갑'에서 지갑을 연결해 주세요." : "지금은 보기만 하는 중입니다. 서명하려면 Trust Wallet 앱 안의 브라우저에서 이 페이지를 열어 주세요." });
+      return e("p", { class: "muted small center", role: "wallet-line", text: wc ? "지금은 보기만 하는 중입니다. 서명이 필요할 때만 Trust Wallet에 연결합니다." : "지금은 보기만 하는 중입니다. 서명하려면 Trust Wallet 앱 안의 브라우저에서 이 페이지를 열어 주세요." });
     if (getWallet() === wc)
       return [
         e("p", { class: st.account && lower(st.account) === lower(st.card) ? "ok small center" : "muted small center", role: "wallet-line", text: st.account && lower(st.account) === lower(st.card) ? "Trust Wallet과 연결되어 있습니다." : "연결된 지갑은 다른 주소입니다. 이 지갑은 보기만 됩니다." }),
@@ -6452,6 +6565,22 @@ function mountOwner(doc, deps = {}) {
       ];
     if (st.account && lower(st.account) === lower(st.card)) return e("p", { class: "ok small center", role: "wallet-line", text: "Trust Wallet에 이 종이지갑이 열려 있습니다." });
     return e("p", { class: "muted small center", role: "wallet-line", text: "서명은 Trust Wallet이 묻습니다. 이 페이지는 개인키를 받지 않습니다." });
+  }
+
+  /** What the page keeps in this browser (the address shown, nothing else), and the way to clear it. */
+  function keptLine() {
+    const kept = remembered.get();
+    if (kept === null || lower(kept) !== lower(st.card)) return null;
+    return [
+      e("p", { class: "muted small center", role: "kept-line", text: "이 브라우저가 이 종이지갑 주소만 기억해, 다음에 열면 지갑 앱 없이 바로 보여 드립니다." }),
+      button("forget", "주소 잊기", () => {
+        remembered.clear();
+        st.mineCard = null;
+        st.card = null;
+        st.view = null;
+        startScreen("이 브라우저에서 종이지갑 주소를 지웠습니다.");
+      }, { plain: true }),
+    ];
   }
 
   function renderCard(view) {
@@ -6488,7 +6617,7 @@ function mountOwner(doc, deps = {}) {
       .filter((w) => w.kind !== "box" && w.kind !== "switch")
       .map((w) => e("p", { role: `warning-${w.kind ?? "other"}`, class: w.strong ? "warn" : "muted small", text: String(w.text) }));
 
-    const mine = st.account !== null && lower(st.account) === lower(st.card);
+    const mine = (st.account !== null && lower(st.account) === lower(st.card)) || (st.mineCard !== null && lower(st.mineCard) === lower(st.card));
     screen([
       topBar(mine ? "mine" : "check"),
       cardFace(state),
@@ -6528,7 +6657,24 @@ function mountOwner(doc, deps = {}) {
   /** The wallet app's provider, connected, on chain 56 and open on this paper wallet — or null after telling why not. */
   async function ensureWallet() {
     if (st.eth) return st.eth;
-    const eth = getWallet();
+    let eth = getWallet();
+    // A connection kept from an earlier visit may still be loading (the page opened the
+    // remembered wallet without waiting for it): it is used before a new one is asked for.
+    if (!eth && wc) {
+      await work(() => wc.ready()).catch(() => false);
+      eth = getWallet();
+    }
+    // From an ordinary browser the app is connected here, when a signature is first needed —
+    // not to look at a wallet — and the run goes on from where it was once the person said yes.
+    if (!eth && wc) {
+      const linked = await wcLink();
+      if (linked.cancelled) throw new Cancelled();
+      if (linked.err) {
+        if (isUserRejection(linked.err)) throw new Cancelled();
+        throw linked.err;
+      }
+      eth = wc;
+    }
     if (!eth) {
       await guideScreen();
       return null;
@@ -6573,7 +6719,7 @@ function mountOwner(doc, deps = {}) {
       e("h2", { class: "center", role: "waiting", text: title }),
       e("p", { class: "center muted", text: note }),
       st.eth === wc && wc?.appLink() ? e("a", { role: "wc-app", class: "btn strong", href: wc.appLink(), sameTab: onPhone(), text: "Trust Wallet 앱 열기" }) : null,
-      st.eth === wc && wc ? e("p", { class: "center muted small", text: "앱이 저절로 뜨지 않으면 폰에서 Trust Wallet을 직접 열어 주세요. 확인을 누른 뒤에는 앱이 저절로 닫히지 않으니, 화면 맨 위 왼쪽의 돌아가기를 누르거나 브라우저를 직접 다시 열어 이 화면으로 돌아오세요." }) : null,
+      st.eth === wc && wc ? e("p", { class: "center muted small", text: "앱이 저절로 뜨지 않으면 폰에서 Trust Wallet을 직접 열어 주세요. 확인을 누른 뒤 앱에 나오는 결과는 보지 않아도 됩니다. 바로 화면 맨 위 왼쪽의 돌아가기를 누르거나 브라우저를 다시 열어 이 화면으로 오세요. 결과는 이 페이지가 보여 드립니다." }) : null,
     ]);
   }
 
@@ -7479,17 +7625,18 @@ function mountOwner(doc, deps = {}) {
     }
   }
 
-  // ---- boot: inside Trust Wallet the paper wallet opens at once; elsewhere the start screen
+  // ---- boot: the paper wallet shown last opens at once; nothing the wallet app would show is asked
 
-  // A wallet app often puts its provider on the page a moment after the page
-  // starts. So the page keeps looking for half a minute, and connects as soon as
-  // the wallet is there — as long as the person has not gone anywhere meanwhile.
+  // A wallet app often puts its provider on the page a moment after the page starts. So
+  // the page keeps looking for half a minute, and once the wallet is there asks it quietly
+  // for the address it already gave this page — as long as the person has not gone anywhere
+  // meanwhile. No such address: the first screen again, now with the app's own button.
   function whenWalletComes(tries = 150) {
     const drawn = st.painted;
     const look = () => {
       if (st.stopped || st.painted !== drawn) return;
       if (getWallet() !== null) {
-        bootWithWallet().catch(showError);
+        openMine().catch(showError);
         return;
       }
       if ((tries -= 1) > 0) setTimeout(look, 200);
@@ -7497,8 +7644,20 @@ function mountOwner(doc, deps = {}) {
     setTimeout(look, 200);
   }
 
-  if (getWallet() !== null) bootWithWallet().catch(showError);
-  else if (wc) {
+  const keptAtBoot = remembered.get();
+  if (getWallet() !== null) openMine().catch(showError);
+  else if (keptAtBoot !== null) {
+    // Shown before in this browser: open it now from the chain alone. A connection kept from an
+    // earlier visit is looked up on the side, ready for when a signature is needed.
+    openAsMine(keptAtBoot).catch(showError);
+    wc
+      ?.ready()
+      .then(async (yes) => {
+        const account = yes ? await quietAccount() : null;
+        if (account) st.account = account;
+      })
+      .catch(() => {});
+  } else if (wc) {
     // A phone's browser often loads this page afresh when the person comes back from the wallet
     // app. A connection made before is still good, so the page looks for it first and goes straight
     // to the paper wallet — the start screen comes only when there is none (or the look takes too long).
@@ -7508,7 +7667,7 @@ function mountOwner(doc, deps = {}) {
     const kept = wc.ready().catch(() => false);
     const openKept = (yes) => {
       if (!yes || st.stopped || st.painted !== drawn) return false;
-      connectAndOpen().catch(showError);
+      openMine().catch(showError);
       return true;
     };
     Promise.race([kept, new Promise((resolve) => setTimeout(() => resolve(null), 5000))]).then((yes) => {
@@ -7571,6 +7730,7 @@ function defaultDeps(g) {
     otherWallet: () => hasOtherWallet(g),
     pageUrl: () => g.location?.href ?? null,
     fingerprint: () => pageFingerprint(g),
+    mine: browserMine(g),
   };
 }
 
