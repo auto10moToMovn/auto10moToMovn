@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-uHWaw/FexwATQANjw51/Aaabx2nitXxVDG2V7NRK614='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-PwhsSG+jT3YnM/OMES3IC3HlviZBmRWX0OcLTRBdM/0='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -5262,8 +5262,26 @@ const EVENTS = ["accountsChanged", "chainChanged"];
  * verification files answer 302, Android marks the domain unverified on a new install), so the
  * browser opened it as a web page and landed on Trust Wallet's home page, the pairing text gone.
  */
-function trustWcLink(uri) {
-  return `trust://wc?uri=${encodeURIComponent(uri)}`;
+function trustWcLink(uri, userAgent) {
+  const own = `trust://wc?uri=${encodeURIComponent(uri)}`;
+  return isAndroid(userAgent) ? androidAppLink(own) : own;
+}
+
+const TRUST_PACKAGE = "com.wallet.crypto.trustapp";
+
+function isAndroid(userAgent) {
+  return /\bAndroid\b/.test(String(userAgent ?? ""));
+}
+
+/**
+ * Trust Wallet's own address in Android's "intent" form: the same address, with the app's package
+ * named. Samsung Internet does not hand a bare trust:// address over to the app (a paper wallet
+ * owner, 2026-11-19) and takes this form; Chrome and the others take both. Any other address is
+ * left as it is. Android only: an iPhone does not know the form.
+ */
+function androidAppLink(link) {
+  const own = /^trust:\/\/([^#]*)$/i.exec(String(link ?? ""));
+  return own ? `intent://${own[1]}#Intent;scheme=trust;package=${TRUST_PACKAGE};end` : link;
 }
 
 /**
@@ -5319,7 +5337,7 @@ function asRejection(err) {
  *   connect: (o: {onUri: (uri: string) => void}) => Promise<string>, request: Function,
  *   disconnect: () => Promise<void>, appLink: () => string|null}}
  */
-function createWcWallet({ lib, projectId, pageUrl, backLink = "" }) {
+function createWcWallet({ lib, projectId, pageUrl, backLink = "", android = false }) {
   let starting = null;
   let session = null;
 
@@ -5414,12 +5432,13 @@ function createWcWallet({ lib, projectId, pageUrl, backLink = "" }) {
       const back = session?.peer?.metadata?.redirect;
       // The app's own address first: its https one opens a web page where the phone does not hand that host to the app.
       const link = back?.native || back?.universal || null;
-      return typeof link === "string" && /^(https:|[a-z][a-z0-9+.-]*:\/\/)/i.test(link) && !/^(javascript|data|http):/i.test(link) ? link : null;
+      if (typeof link !== "string" || !/^(https:|[a-z][a-z0-9+.-]*:\/\/)/i.test(link) || /^(javascript|data|http):/i.test(link)) return null;
+      return android ? androidAppLink(link) : link;
     },
   };
 }
 
-return { WC_PROJECT_ID, WC_RELAY, trustWcLink, originOf, browserBackLink, pairsInOneVisit, sessionAccounts, createWcWallet };
+return { WC_PROJECT_ID, WC_RELAY, trustWcLink, isAndroid, androidAppLink, originOf, browserBackLink, pairsInOneVisit, sessionAccounts, createWcWallet };
 })();
 __m["web/src/lib/mine.mjs"] = (() => {
 // The one thing the page keeps in the browser: the public address of the paper wallet
@@ -6158,7 +6177,7 @@ const { describeCall } = __m["web/src/lib/describe.mjs"];
 const { CHANGE_GAS_MAX, approveCall, harvestSelfCall, prepareCall, setHarvesterCall, setRecipientCall, unregisterCall } = __m["web/src/lib/txs.mjs"];
 const { receiptOf, walletSender } = __m["web/src/lib/send.mjs"];
 const { connectOnBsc, connectWallet, walletAccounts, describeWallets, findWallet, hasOtherWallet, isUserRejection, TRUST_INSTALL_LINK, trustOpenLink, watchWallets } = __m["web/src/lib/wallet.mjs"];
-const { browserBackLink, createWcWallet, pairsInOneVisit, trustWcLink, WC_PROJECT_ID } = __m["web/src/lib/wc.mjs"];
+const { browserBackLink, createWcWallet, isAndroid, pairsInOneVisit, trustWcLink, WC_PROJECT_ID } = __m["web/src/lib/wc.mjs"];
 const { browserMine } = __m["web/src/lib/mine.mjs"];
 const { forAddressStep, looksLikeKey, parseAddressText, parseQrText, KEY_REFUSED_MESSAGE } = __m["web/src/lib/qr-text.mjs"];
 const { forbiddenRecipients } = __m["web/src/lib/inputs.mjs"];
@@ -6253,6 +6272,8 @@ function mountOwner(doc, deps = {}) {
   // Whether the app on this phone takes two signatures in one visit (wc.mjs pairsInOneVisit).
   const pairsHere = deps.pairs ?? (() => true);
   const onIphone = deps.iphone ?? (() => true);
+  // The browser's own description of itself: the link that opens the app differs on Android (wc.mjs androidAppLink).
+  const userAgent = deps.userAgent ?? (() => "");
   const otherWallet = deps.otherWallet ?? (() => false);
   const pageUrl = deps.pageUrl ?? (() => null);
   const sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
@@ -6533,7 +6554,7 @@ function mountOwner(doc, deps = {}) {
       art(doc, "ill-phone", "hero"),
       e("h2", { class: "center", role: "wc-title", text: "Trust Wallet으로 연결하기" }),
       // On the phone the app is one tap away, in this tab. On a PC there is no app to open: the phone scans.
-      phone ? e("a", { role: "wc-open", class: "btn strong", href: trustWcLink(uri), sameTab: true, text: "이 폰의 Trust Wallet 앱 열기" }) : null,
+      phone ? e("a", { role: "wc-open", class: "btn strong", href: trustWcLink(uri, userAgent()), sameTab: true, text: "이 폰의 Trust Wallet 앱 열기" }) : null,
       phone ? e("p", { class: "muted small center", text: "앱에서 종이지갑을 고르고 '연결'을 누르세요. 앱은 저절로 닫히지 않습니다. " + (onIphone() ? "화면 맨 위 왼쪽의 '◀ Safari'(돌아가기)를 누르거나, 브라우저를 직접 다시 열어 이 화면으로 돌아오세요." : "폰의 '뒤로' 단추를 누르거나, 브라우저를 직접 다시 열어 이 화면으로 돌아오세요.") }) : null,
       picture ? e("p", { class: "label center", text: phone ? "다른 기기의 Trust Wallet으로 연결하려면 아래 QR을 그 앱의 스캔으로 찍으세요" : "폰의 Trust Wallet 앱에서 스캔(QR 찍기)으로 아래를 찍고, 앱에서 종이지갑을 골라 '연결'을 누르세요" }) : null,
       picture ? e("img", { role: "wc-qr", class: "qr", src: picture, alt: "지갑 연결 QR" }) : null,
@@ -8124,7 +8145,7 @@ function mountOwner(doc, deps = {}) {
 function wcWalletOf(g) {
   const lib = g["@walletconnect/sign-client"];
   if (!WC_PROJECT_ID || typeof lib?.SignClient?.init !== "function") return null;
-  return createWcWallet({ lib, projectId: WC_PROJECT_ID, pageUrl: g.location?.href ?? null, backLink: browserBackLink(g.navigator?.userAgent) });
+  return createWcWallet({ lib, projectId: WC_PROJECT_ID, pageUrl: g.location?.href ?? null, backLink: browserBackLink(g.navigator?.userAgent), android: isAndroid(g.navigator?.userAgent) });
 }
 
 /** `text` as a QR picture (a data: address), or null when the page has no QR drawer. */
@@ -8158,6 +8179,7 @@ function defaultDeps(g) {
     phone: () => /\b(iPhone|iPad|iPod|Android)\b/.test(String(g.navigator?.userAgent ?? "")),
     pairs: () => pairsInOneVisit(g.navigator?.userAgent),
     iphone: () => pairsInOneVisit(g.navigator?.userAgent),
+    userAgent: () => String(g.navigator?.userAgent ?? ""),
     diag: () => describeWallets(g),
     otherWallet: () => hasOtherWallet(g),
     pageUrl: () => g.location?.href ?? null,
