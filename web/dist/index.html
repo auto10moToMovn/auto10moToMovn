@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-EeOrwLL7Ew32PVN7O0+665c7FbSp+HdAKBS/GUNmTyE='; style-src 'sha256-ycnIkd074dnxDrrnh4UvZer1Dt+97GJmOXX28E05stA='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-hH49yKR6mUwIl50iGy5BJrcmsORrTRm84CQ10A1rtZg='; style-src 'sha256-ycnIkd074dnxDrrnh4UvZer1Dt+97GJmOXX28E05stA='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -5213,6 +5213,27 @@ function originOf(pageUrl) {
   }
 }
 
+/**
+ * The way back to the browser this page is in, for the wallet app to open once the person
+ * has confirmed there (operator, 2026-11-18: a button back to the web). Only iPhone Chrome
+ * has an address that brings the browser forward as it is, on the tab it was on; Safari and
+ * the others have none, and get nothing rather than a link that opens a new page.
+ */
+function browserBackLink(userAgent) {
+  return /\bCriOS\//.test(String(userAgent ?? "")) ? "googlechrome://" : "";
+}
+
+/**
+ * Whether two signatures may be handed to the app in one visit. Only where that was seen to
+ * work: the iPhone app shows the two requests one after the other (operator's phone,
+ * 2026-11-18). The Android app (26.45.8, same day) shows one of the two — either one — and
+ * answers the other "User disapproved requested methods" by itself, so there, and through a
+ * PC's QR where the phone is unknown, the signatures are asked for one at a time.
+ */
+function pairsInOneVisit(userAgent) {
+  return /\b(iPhone|iPad|iPod)\b/.test(String(userAgent ?? ""));
+}
+
 /** The BSC addresses a session lets the page use, first one first. */
 function sessionAccounts(session) {
   const all = session?.namespaces?.eip155?.accounts ?? [];
@@ -5222,7 +5243,7 @@ function sessionAccounts(session) {
 /** A "no" in the app, in the words the rest of the page already understands (EIP-1193 4001). */
 function asRejection(err) {
   const text = String(err?.message ?? err ?? "");
-  if (err?.code === 4001 || err?.code === 5000 || /reject|denied|cancel/i.test(text)) return Object.assign(new Error(text || "User rejected"), { code: 4001 });
+  if (err?.code === 4001 || err?.code === 5000 || err?.code === 5002 || /reject|denied|cancel|disapprov/i.test(text)) return Object.assign(new Error(text || "User rejected"), { code: 4001 });
   return err instanceof Error ? err : new Error(text);
 }
 
@@ -5232,7 +5253,7 @@ function asRejection(err) {
  *   connect: (o: {onUri: (uri: string) => void}) => Promise<string>, request: Function,
  *   disconnect: () => Promise<void>, appLink: () => string|null}}
  */
-function createWcWallet({ lib, projectId, pageUrl }) {
+function createWcWallet({ lib, projectId, pageUrl, backLink = "" }) {
   let starting = null;
   let session = null;
 
@@ -5242,7 +5263,7 @@ function createWcWallet({ lib, projectId, pageUrl }) {
         lib.SignClient.init({
           projectId,
           relayUrl: WC_RELAY,
-          metadata: { name: "10모 종이지갑 이자 바꾸기", description: "종이지갑 이자(MOVN)를 WBMB로 바꾸는 공개 도구", url: originOf(pageUrl), icons: [] },
+          metadata: { name: "10모 종이지갑 이자 바꾸기", description: "종이지갑 이자(MOVN)를 WBMB로 바꾸는 공개 도구", url: originOf(pageUrl), icons: [], ...(backLink && { redirect: { native: backLink } }) },
         }),
       )
       .then((client) => {
@@ -5331,7 +5352,7 @@ function createWcWallet({ lib, projectId, pageUrl }) {
   };
 }
 
-return { WC_PROJECT_ID, WC_RELAY, trustWcLink, originOf, sessionAccounts, createWcWallet };
+return { WC_PROJECT_ID, WC_RELAY, trustWcLink, originOf, browserBackLink, pairsInOneVisit, sessionAccounts, createWcWallet };
 })();
 __m["web/src/lib/mine.mjs"] = (() => {
 // The one thing the page keeps in the browser: the public address of the paper wallet
@@ -6006,7 +6027,7 @@ const { describeCall } = __m["web/src/lib/describe.mjs"];
 const { CHANGE_GAS_MAX, approveCall, harvestSelfCall, prepareCall, setHarvesterCall, setRecipientCall, unregisterCall } = __m["web/src/lib/txs.mjs"];
 const { receiptOf, walletSender } = __m["web/src/lib/send.mjs"];
 const { connectWallet, walletAccounts, describeWallets, findWallet, hasOtherWallet, isUserRejection, TRUST_INSTALL_LINK, trustOpenLink, watchWallets } = __m["web/src/lib/wallet.mjs"];
-const { createWcWallet, trustWcLink, WC_PROJECT_ID } = __m["web/src/lib/wc.mjs"];
+const { browserBackLink, createWcWallet, pairsInOneVisit, trustWcLink, WC_PROJECT_ID } = __m["web/src/lib/wc.mjs"];
 const { browserMine } = __m["web/src/lib/mine.mjs"];
 const { forAddressStep, looksLikeKey, parseAddressText, parseQrText, KEY_REFUSED_MESSAGE } = __m["web/src/lib/qr-text.mjs"];
 const { forbiddenRecipients } = __m["web/src/lib/inputs.mjs"];
@@ -6093,6 +6114,9 @@ function mountOwner(doc, deps = {}) {
   const remembered = deps.mine ?? { get: () => null, set() {}, clear() {} };
   const drawQr = deps.qr ?? (() => null);
   const onPhone = deps.phone ?? (() => false);
+  // Whether the app on this phone takes two signatures in one visit (wc.mjs pairsInOneVisit).
+  const pairsHere = deps.pairs ?? (() => true);
+  const onIphone = deps.iphone ?? (() => true);
   const otherWallet = deps.otherWallet ?? (() => false);
   const pageUrl = deps.pageUrl ?? (() => null);
   const sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
@@ -6362,7 +6386,7 @@ function mountOwner(doc, deps = {}) {
       e("h2", { class: "center", role: "wc-title", text: "Trust Wallet으로 연결하기" }),
       // On the phone the app is one tap away, in this tab. On a PC there is no app to open: the phone scans.
       phone ? e("a", { role: "wc-open", class: "btn strong", href: trustWcLink(uri), sameTab: true, text: "이 폰의 Trust Wallet 앱 열기" }) : null,
-      phone ? e("p", { class: "muted small center", text: "앱에서 종이지갑을 고르고 '연결'을 누르세요. 앱은 저절로 닫히지 않습니다. 화면 맨 위 왼쪽의 '◀ Safari'(돌아가기)를 누르거나, 브라우저를 직접 다시 열어 이 화면으로 돌아오세요." }) : null,
+      phone ? e("p", { class: "muted small center", text: "앱에서 종이지갑을 고르고 '연결'을 누르세요. 앱은 저절로 닫히지 않습니다. " + (onIphone() ? "화면 맨 위 왼쪽의 '◀ Safari'(돌아가기)를 누르거나, 브라우저를 직접 다시 열어 이 화면으로 돌아오세요." : "폰의 '뒤로' 단추를 누르거나, 브라우저를 직접 다시 열어 이 화면으로 돌아오세요.") }) : null,
       picture ? e("p", { class: "label center", text: phone ? "다른 기기의 Trust Wallet으로 연결하려면 아래 QR을 그 앱의 스캔으로 찍으세요" : "폰의 Trust Wallet 앱에서 스캔(QR 찍기)으로 아래를 찍고, 앱에서 종이지갑을 골라 '연결'을 누르세요" }) : null,
       picture ? e("img", { role: "wc-qr", class: "qr", src: picture, alt: "지갑 연결 QR" }) : null,
       e("p", { class: "warn", text: "이 연결은 주소를 알려 주고 서명을 물어볼 수 있게 할 뿐입니다. 개인키나 복구 문구는 오가지 않습니다." }),
@@ -7687,8 +7711,9 @@ function mountOwner(doc, deps = {}) {
     // The wallet app's amount box may have let in less than asked: the done note then
     // says what that means for the next interest instead of "nothing left to do".
     let short = null;
-    // Through WalletConnect every signature is a trip to the app and back: both are asked at once.
-    const result = await registerDirect(ctx, st.eth === wc && wc ? pairSender() : pageSender(), plan, {
+    // Through WalletConnect every signature is a trip to the app and back: both are asked at once
+    // where the app is known to take them so (the iPhone app; the Android app answers one and refuses the other).
+    const result = await registerDirect(ctx, st.eth === wc && wc && pairsHere() ? pairSender() : pageSender(), plan, {
       recipient,
       harvester,
       limit,
@@ -7919,7 +7944,7 @@ function mountOwner(doc, deps = {}) {
 function wcWalletOf(g) {
   const lib = g["@walletconnect/sign-client"];
   if (!WC_PROJECT_ID || typeof lib?.SignClient?.init !== "function") return null;
-  return createWcWallet({ lib, projectId: WC_PROJECT_ID, pageUrl: g.location?.href ?? null });
+  return createWcWallet({ lib, projectId: WC_PROJECT_ID, pageUrl: g.location?.href ?? null, backLink: browserBackLink(g.navigator?.userAgent) });
 }
 
 /** `text` as a QR picture (a data: address), or null when the page has no QR drawer. */
@@ -7948,6 +7973,8 @@ function defaultDeps(g) {
     wc: wcWalletOf(g),
     qr: (text) => qrDataUrl(g, text),
     phone: () => /\b(iPhone|iPad|iPod|Android)\b/.test(String(g.navigator?.userAgent ?? "")),
+    pairs: () => pairsInOneVisit(g.navigator?.userAgent),
+    iphone: () => pairsInOneVisit(g.navigator?.userAgent),
     diag: () => describeWallets(g),
     otherWallet: () => hasOtherWallet(g),
     pageUrl: () => g.location?.href ?? null,
