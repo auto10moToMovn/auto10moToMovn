@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-WmIPCxn3dRur92siNMg5rGYn7kBB84GVguNgdcCB+Pc='; style-src 'sha256-ycnIkd074dnxDrrnh4UvZer1Dt+97GJmOXX28E05stA='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-EeOrwLL7Ew32PVN7O0+665c7FbSp+HdAKBS/GUNmTyE='; style-src 'sha256-ycnIkd074dnxDrrnh4UvZer1Dt+97GJmOXX28E05stA='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -4363,6 +4363,35 @@ async function firstSwapByCall(ctx, { card, registerCall, gasPrice, gasLimit }) 
   }
 }
 
+/**
+ * Before the approve is on chain: what the register would report right after it, from one
+ * `eth_simulateV1` of the two in order (nothing is sent). Lets the page prepare the register
+ * together with the approve, so the wallet app is visited once for both.
+ * @returns {Promise<{firstSwap: false} | {firstSwap: true, out: bigint}>}
+ */
+async function firstSwapAfterApprove(ctx, { card, approve, registerCall, gasPrice, gasLimit }) {
+  const from = getAddress(card);
+  const price = toQuantity(gasPrice);
+  const calls = [
+    { from, to: approve.to, data: approve.data, gas: toQuantity(approve.gasLimit), gasPrice: price },
+    { from, to: ctx.chain.contract, data: withMinOut(registerCall, MaxUint256), gas: toQuantity(gasLimit), gasPrice: price },
+  ];
+  const blocks = await ctx.rpc.send("eth_simulateV1", [{ blockStateCalls: [{ calls }] }, "latest"]);
+  const [approved, registered] = blocks?.[0]?.calls ?? [];
+  const passed = (c) => c?.status !== undefined && BigInt(c.status) === 1n;
+  if (!approved || !registered || !passed(approved)) throw new FloorError("simulate-failed");
+  if (passed(registered)) return { firstSwap: false };
+  const data = typeof registered.error?.data === "string" ? registered.error.data : registered.returnData;
+  let parsed = null;
+  try {
+    parsed = data ? CARD_HARVEST.parseError(data) : null;
+  } catch {
+    parsed = null;
+  }
+  if (parsed?.name === "TooLittleOut") return { firstSwap: true, out: BigInt(parsed.args[0]) };
+  throw new FloorError(parsed?.name ?? "register-failed");
+}
+
 /** `min(quote, first swap) × 997 / 1000`; a missing or zero side is a FloorError. */
 function floorOf({ quoteFull, firstSwapOut }) {
   if (quoteFull === null || quoteFull === undefined || quoteFull <= 0n) throw new FloorError("quote-zero");
@@ -4402,7 +4431,7 @@ async function harvestFloor(ctx, card, { fee, tickSpacing, gasPrice }) {
   return { movnIn: BigInt(movnIn), wbmbOut: BigInt(wbmbOut), floor, net };
 }
 
-return { FloorError, registerRefundWei, firstSwapByCall, floorOf, harvestFloor };
+return { FloorError, registerRefundWei, firstSwapByCall, firstSwapAfterApprove, floorOf, harvestFloor };
 })();
 __m["web/src/lib/register.mjs"] = (() => {
 // Registration: which path a card's BNB buys (direct, the application box, or a
@@ -4410,12 +4439,12 @@ __m["web/src/lib/register.mjs"] = (() => {
 // swap's output from an eth_call, set the floor, then register self-funded. A
 // register reverted by a moved price is re-signed once from the card's BNB.
 const { MaxUint256 } = globalThis.ethers;
-const { allowancePlenty, approveEnough } = __m["web/src/lib/approve.mjs"];
+const { allowanceCase, allowancePlenty, approveEnough, readAllowance } = __m["web/src/lib/approve.mjs"];
 const { nextTake, readCardChecked } = __m["web/src/lib/card.mjs"];
-const { firstSwapByCall, floorOf } = __m["web/src/lib/floor.mjs"];
+const { firstSwapAfterApprove, firstSwapByCall, floorOf } = __m["web/src/lib/floor.mjs"];
 const { K } = __m["web/src/lib/chain.mjs"];
 const { APPROVE_GAS_MAX, REGISTER_GAS_MAX, REGISTER_GAS_NO_SIM } = __m["web/src/lib/params.mjs"];
-const { prepareCall, registerCall } = __m["web/src/lib/txs.mjs"];
+const { approveCall, prepareCall, registerCall } = __m["web/src/lib/txs.mjs"];
 const { poolKeyOf } = __m["scripts/lib/quote.mjs"];
 
 /**
@@ -4465,13 +4494,74 @@ async function planRegister(ctx, card, { recipient, harvester, limit, defaultHar
 }
 
 /**
+ * The approve and the register handed to the wallet app together (`sender.sendPair`), so
+ * the person visits the app once and signs both there. The register is prepared before the
+ * approve is on chain: its floor comes from a simulation of the two in order, its nonce is
+ * the approve's plus one. Both are also valid alone as the chain stands (a register without
+ * an allowance only registers), so the app has nothing to refuse.
+ *
+ * Returns null when the pair cannot be prepared (no simulation on the RPCs): the caller then
+ * goes the one-at-a-time way, as it does for whatever the pair left undone.
+ * @returns {Promise<null | {status: "registered"|"reverted"|"cancelled"|"continue", floor: bigint|null,
+ *   receipts: object[], approved?: boolean, attempt?: number, unswapped?: object}>}
+ */
+async function registerPaired(ctx, sender, plan, { recipient, harvester, limit, approveAmount, selfFunded, hooks }) {
+  const card = sender.address;
+  const gasPrice = plan.gasPrice;
+  const take = nextTake(plan.state).take;
+  const amount = approveAmount ?? MaxUint256;
+  const call = (minWbmbOut) => registerCall(ctx.chain, { recipient, harvester, selfFunded, minWbmbOut, maxMovnPerRound: limit });
+
+  const approve = await prepareCall(ctx, card, approveCall(ctx.chain, amount), { gasPrice, cap: APPROVE_GAS_MAX });
+  let probe;
+  try {
+    probe = await firstSwapAfterApprove(ctx, { card, approve, registerCall: call(0n), gasPrice, gasLimit: REGISTER_GAS_NO_SIM });
+  } catch {
+    return null;
+  }
+  if (probe.firstSwap && take === 0n) return null;
+  const key = poolKeyOf(ctx.chain.movn, ctx.chain.wbmb, ctx.chain.pools.movnWbmb);
+  const quoteFull = probe.firstSwap ? await ctx.quoteIn(key, true, take) : null;
+  const floor = probe.firstSwap ? floorOf({ quoteFull, firstSwapOut: probe.out }) : 0n;
+  // No estimate can run before the approve is in: the register goes with the fixed limit.
+  const register = await prepareCall(ctx, card, call(floor), { gasPrice, nonce: approve.nonce + 1, gasLimit: REGISTER_GAS_NO_SIM });
+  const net = floor - (floor * K.FEE_BPS) / 10_000n;
+  if (!(await hooks.confirmPair(approve, register, { amount, take, quote: quoteFull, floor, net }))) return { status: "cancelled", floor, receipts: [] };
+  await hooks.beforeSend?.("approve");
+
+  const [a, r] = await sender.sendPair(approve, register);
+  // The approve was refused: nothing is waited for. (A register the person still said yes to
+  // only registers; the wallet's own screen shows it when it is opened again.)
+  if (a.rejected) return { status: "cancelled", floor, receipts: [] };
+  const receipts = [await sender.receipt(a.hash)];
+  if (receipts[0].status !== 1) return { status: "reverted", floor, receipts };
+  const allowance = await readAllowance(ctx, card, { sleep: hooks.sleep, target: amount });
+  const kind = allowanceCase(allowance, take, amount);
+  const short = kind === "enough" ? null : { allowance, take, amount, kind };
+
+  if (r.rejected) return { status: "continue", floor, receipts, approved: kind !== "blocked", attempt: 1 };
+  const registered = await sender.receipt(r.hash);
+  receipts.push(registered);
+  if (registered.status === 1) {
+    // Less was approved in the app than this round takes: the register went in without its swap.
+    if (kind === "blocked") return { status: "registered", floor, receipts, unswapped: short };
+    if (short) await hooks.onShort?.(short);
+    return { status: "registered", floor, receipts };
+  }
+  const bnb = BigInt(await ctx.rpc.send("eth_getBalance", [card, "latest"]));
+  if (afterRegisterRevert(1, bnb, register.costWei) === "add-bnb") return { status: "reverted", floor, receipts };
+  return { status: "continue", floor, receipts, approved: kind !== "blocked", attempt: 2 };
+}
+
+/**
  * Registers `card` directly, with its key (or wallet) as `sender`: the approval
  * of the chosen amount if the allowance is low (read back afterwards), then a register whose floor is the first swap's output
  * from `eth_call` × 997 / 1000, self-funded so no refund is owed (`selfFunded` false
  * for a wallet that got its gas first: the register then pays it back). Each attempt is
  * confirmed before it is signed. One re-sign if the price moved under the register;
  * then the page asks for BNB instead.
- * @returns {Promise<{status: "registered"|"reverted"|"cancelled", floor: bigint|null, receipts: object[]}>}
+ * `unswapped` is set when the pair registered but too little was approved for the first swap.
+ * @returns {Promise<{status: "registered"|"reverted"|"cancelled", floor: bigint|null, receipts: object[], unswapped?: object}>}
  */
 async function registerDirect(ctx, sender, plan, { recipient, harvester, limit, confirm, approveAmount, selfFunded = true, hooks = {} }) {
   const card = sender.address;
@@ -4481,9 +4571,24 @@ async function registerDirect(ctx, sender, plan, { recipient, harvester, limit, 
   const receipts = [];
   let floor = null;
 
+  // From a wallet app that is not this page's browser, both signatures are asked for in
+  // one visit (operator, 2026-11-18); whatever that leaves undone goes on one at a time below.
+  let needApprove = plan.needApprove && approveAmount !== null;
+  let firstAttempt = 1;
+  if (needApprove && sender.sendPair && hooks.confirmPair) {
+    const paired = await registerPaired(ctx, sender, plan, { recipient, harvester, limit, approveAmount, selfFunded, hooks });
+    if (paired) {
+      receipts.push(...paired.receipts);
+      floor = paired.floor;
+      if (paired.status !== "continue") return { status: paired.status, floor, receipts, ...(paired.unswapped && { unswapped: paired.unswapped }) };
+      needApprove = !paired.approved;
+      firstAttempt = paired.attempt;
+    }
+  }
+
   // `approveAmount` is the allowance the person chose (the token's maximum when not
   // given); null keeps the allowance the wallet already has.
-  if (plan.needApprove && approveAmount !== null) {
+  if (needApprove) {
     // The wallet app may sign another amount than the page asked for: the allowance
     // is read back, and a different one is told to the person (hooks.onShort).
     const approved = await approveEnough(ctx, sender, {
@@ -4499,7 +4604,7 @@ async function registerDirect(ctx, sender, plan, { recipient, harvester, limit, 
     if (approved.status !== "ok") return { status: approved.status, floor, receipts };
   }
 
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = firstAttempt; attempt <= 2; attempt += 1) {
     const probeCall = registerCall(ctx.chain, {
       recipient,
       harvester,
@@ -4852,35 +4957,62 @@ async function receiptOf(ctx, hash) {
  */
 function walletSender(ctx, ethereum, card, { onSent } = {}) {
   const address = getAddress(card);
+  /** The wallet is on chain 56, open on the card, and the card holds `costWei` of BNB. */
+  const ready = async (costWei) => {
+    const chainId = Number(BigInt(await ethereum.request({ method: "eth_chainId" })));
+    if (chainId !== 56) throw new Error("지갑이 BNB 스마트 체인(BSC)에 있지 않습니다. 지갑에서 네트워크를 바꿔 주세요.");
+    const accounts = (await ethereum.request({ method: "eth_accounts" })) ?? [];
+    if (String(accounts[0] ?? "").toLowerCase() !== address.toLowerCase())
+      throw new Error("지갑에 열려 있는 주소가 이 종이지갑이 아닙니다. 이 종이지갑이 든 지갑으로 바꿔 주세요.");
+    const bnb = BigInt(await ctx.rpc.send("eth_getBalance", [address, "latest"]));
+    if (bnb < costWei) throw new Error("종이지갑에 BNB가 모자랍니다. 종이지갑 주소로 BNB를 조금 넣고 다시 해 주세요.");
+  };
+  /** Asks the wallet app to sign and send one prepared transaction; resolves to its number. */
+  const ask = async (prepared) => {
+    const hash = await ethereum.request({
+      method: "eth_sendTransaction",
+      params: [
+        {
+          from: address,
+          to: prepared.to,
+          data: prepared.data,
+          value: toQuantity(prepared.value),
+          gas: toQuantity(prepared.gasLimit),
+          gasPrice: toQuantity(prepared.gasPrice),
+          nonce: toQuantity(prepared.nonce),
+        },
+      ],
+    });
+    if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("지갑이 거래 번호를 돌려주지 않았습니다.");
+    return hash;
+  };
   return {
     address,
     kind: "wallet",
     async send(prepared) {
-      const chainId = Number(BigInt(await ethereum.request({ method: "eth_chainId" })));
-      if (chainId !== 56) throw new Error("지갑이 BNB 스마트 체인(BSC)에 있지 않습니다. 지갑에서 네트워크를 바꿔 주세요.");
-      const accounts = (await ethereum.request({ method: "eth_accounts" })) ?? [];
-      if (String(accounts[0] ?? "").toLowerCase() !== address.toLowerCase())
-        throw new Error("지갑에 열려 있는 주소가 이 종이지갑이 아닙니다. 이 종이지갑이 든 지갑으로 바꿔 주세요.");
-      const bnb = BigInt(await ctx.rpc.send("eth_getBalance", [address, "latest"]));
-      if (bnb < prepared.costWei) throw new Error("종이지갑에 BNB가 모자랍니다. 종이지갑 주소로 BNB를 조금 넣고 다시 해 주세요.");
-      const hash = await ethereum.request({
-        method: "eth_sendTransaction",
-        params: [
-          {
-            from: address,
-            to: prepared.to,
-            data: prepared.data,
-            value: toQuantity(prepared.value),
-            gas: toQuantity(prepared.gasLimit),
-            gasPrice: toQuantity(prepared.gasPrice),
-            nonce: toQuantity(prepared.nonce),
-          },
-        ],
-      });
-      if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("지갑이 거래 번호를 돌려주지 않았습니다.");
+      await ready(prepared.costWei);
+      const hash = await ask(prepared);
       onSent?.(hash);
       return receiptOf(ctx, hash);
     },
+    /**
+     * Two transactions handed to the wallet app together, so it can show them one after the
+     * other in a single visit. Each answer is the app's own: a transaction number, or the
+     * error it gave (a "no" included). Nothing is waited for on the chain here.
+     * @returns {Promise<Array<{hash: string} | {error: unknown}>>}
+     */
+    async sendPair(first, second, { onFirst } = {}) {
+      await ready(first.costWei + second.costWei);
+      const settled = await Promise.allSettled([
+        ask(first).then((hash) => {
+          onFirst?.(hash);
+          return hash;
+        }),
+        ask(second),
+      ]);
+      return settled.map((s) => (s.status === "fulfilled" ? { hash: s.value } : { error: s.reason }));
+    },
+    receipt: (hash) => receiptOf(ctx, hash),
   };
 }
 
@@ -5872,7 +6004,7 @@ const { approveEnough } = __m["web/src/lib/approve.mjs"];
 const { approveGuide, fees, refundText, rules } = __m["web/src/lib/rules.mjs"];
 const { describeCall } = __m["web/src/lib/describe.mjs"];
 const { CHANGE_GAS_MAX, approveCall, harvestSelfCall, prepareCall, setHarvesterCall, setRecipientCall, unregisterCall } = __m["web/src/lib/txs.mjs"];
-const { walletSender } = __m["web/src/lib/send.mjs"];
+const { receiptOf, walletSender } = __m["web/src/lib/send.mjs"];
 const { connectWallet, walletAccounts, describeWallets, findWallet, hasOtherWallet, isUserRejection, TRUST_INSTALL_LINK, trustOpenLink, watchWallets } = __m["web/src/lib/wallet.mjs"];
 const { createWcWallet, trustWcLink, WC_PROJECT_ID } = __m["web/src/lib/wc.mjs"];
 const { browserMine } = __m["web/src/lib/mine.mjs"];
@@ -6748,6 +6880,31 @@ function mountOwner(doc, deps = {}) {
     }
   }
 
+  /**
+   * Turning on from a wallet app that is not this page's browser: the approve and the register
+   * are handed over together, so the app shows them one after the other and the person comes
+   * back once (operator, 2026-11-18: fewer trips to the app). A "no" is told apart from an error.
+   */
+  async function sendPreparedPair(first, second) {
+    const eth = await ensureWallet();
+    if (!eth) throw new Cancelled();
+    const note = "앱에 승인과 켜기, 두 거래가 이어서 나옵니다. 둘 다 확인을 누른 뒤 이 화면으로 돌아오세요. 끝나면 이 화면이 바뀝니다.";
+    waitingScreen({ title: "Trust Wallet에서 확인을 두 번 눌러 주세요", note });
+    const answers = await work(() =>
+      walletSender(ctx, eth, st.card).sendPair(first, second, {
+        // Back on the page after the first one only: say which is left, with the way to the app.
+        onFirst: () => waitingScreen({ title: "승인 서명은 받았습니다. 켜기 서명이 남았습니다", note: "Trust Wallet에 켜기 거래가 떠 있습니다. 앱에서 확인을 한 번 더 눌러 주세요." }),
+      }),
+    );
+    const told = answers.map((a) => {
+      if (a.hash) return a;
+      if (isUserRejection(a.error)) return { rejected: true };
+      throw a.error;
+    });
+    if (told.every((a) => a.hash)) waitingScreen({ title: "서명을 모두 받았습니다", note: "두 거래가 체인에 들어가기를 기다립니다. 보통 몇 초 걸립니다." });
+    return told;
+  }
+
   // ---- the turns every transaction goes through
 
   function describeScreen(kind, description) {
@@ -6771,7 +6928,35 @@ function mountOwner(doc, deps = {}) {
     });
   }
 
-  async function confirmWithExtra(kind, description) {
+  /** The approve and the register on one screen, before the single visit to the app that signs both. */
+  function pairScreen(approve, register) {
+    return ask((finish) => {
+      screen([
+        art(doc, "ill-sign", "hero wide"),
+        e("p", { class: "label", text: "서명하기 전에 확인하세요" }),
+        e("p", { class: "panel", role: "tx-order", text: "Trust Wallet에 한 번만 가서 서명 2번을 이어서 합니다: ① 승인 ② 켜기. 승인을 확인하면 켜기가 바로 이어서 나옵니다. 둘 다 확인한 뒤 돌아오세요." }),
+        e("h2", { role: "tx-title", text: "승인하고 켜기" }),
+        e("p", { role: "tx-plain", text: `① ${PLAIN["approve-max"] ?? ""}` }),
+        e("p", { role: "tx-plain-2", text: `② ${PLAIN.register ?? ""}` }),
+        e("p", { class: "panel", role: "tx-cost", text: `수수료(가스): 두 거래를 합쳐 최대 ${fmtBnb(approve.gas.costWei + register.gas.costWei)} BNB — 종이지갑의 BNB에서 나갑니다.` }),
+        e(
+          "details",
+          { role: "tx-lines" },
+          e("summary", { text: "거래 내용 그대로 보기" }),
+          e("p", { class: "small", text: `① ${approve.title}` }),
+          ...approve.lines.map((line) => e("p", { class: "small", text: line })),
+          e("p", { class: "muted small", text: approve.gas.text }),
+          e("p", { class: "small", text: `② ${register.title}` }),
+          ...register.lines.map((line) => e("p", { class: "small", text: line })),
+          e("p", { class: "muted small", text: register.gas.text }),
+        ),
+        button("confirm", "Trust Wallet에서 서명하기", () => finish(true), { strong: true }),
+        button("cancel", "그만두기", () => finish(false), { plain: true }),
+      ]);
+    });
+  }
+
+  async function confirmWithExtra(kind, description, show = () => describeScreen(kind, description)) {
     if (st.checkedBy === 1 && !st.extraDone) {
       st.extraDone = true;
       const sure = await ask((finish) => {
@@ -6785,10 +6970,12 @@ function mountOwner(doc, deps = {}) {
       });
       if (!sure) return false;
     }
-    return describeScreen(kind, description);
+    return show();
   }
 
   const pageSender = () => ({ address: st.card, kind: "page", send: (prepared) => sendPrepared(prepared) });
+  /** The same, able to hand two transactions to the app at once. */
+  const pairSender = () => ({ ...pageSender(), sendPair: sendPreparedPair, receipt: (hash) => work(() => receiptOf(ctx, hash)) });
   const fmtAllowance = (allowance) => (allowance >= MaxUint256 / 2n ? "한도 없음 (무제한)" : `${fmtMovn(allowance)} MOVN`);
 
   /** Less landed on the chain than the page asked (the wallet app's amount box): say both numbers, and let them decide. */
@@ -7500,7 +7687,8 @@ function mountOwner(doc, deps = {}) {
     // The wallet app's amount box may have let in less than asked: the done note then
     // says what that means for the next interest instead of "nothing left to do".
     let short = null;
-    const result = await registerDirect(ctx, pageSender(), plan, {
+    // Through WalletConnect every signature is a trip to the app and back: both are asked at once.
+    const result = await registerDirect(ctx, st.eth === wc && wc ? pairSender() : pageSender(), plan, {
       recipient,
       harvester,
       limit,
@@ -7520,11 +7708,22 @@ function mountOwner(doc, deps = {}) {
           short = info.kind === "short" ? info : null;
           return registerShortScreen(info);
         },
+        confirmPair: (approve, register, extra) => {
+          const about = (prepared) => describeCall(prepared, { chain: ctx.chain, card: st.card, extra });
+          return confirmWithExtra("register", null, () => pairScreen(about(approve), about(register)));
+        },
       },
     });
     if (result.status === "cancelled") return;
     if (result.status === "reverted") {
       await resultScreen("켜지 못했습니다", result.receipts, { note: "거래가 되돌아갔습니다. 종이지갑에 BNB를 조금 더 넣고 다시 해 주세요." });
+      return;
+    }
+    if (result.unswapped) {
+      // Signed in one visit, but the app's amount box let in less than this round takes.
+      await resultScreen("켜졌습니다", result.receipts, {
+        note: `다만 ${fmtMovn(result.unswapped.allowance)} MOVN만 승인되어 지금 쌓인 이자 ${fmtMovn(result.unswapped.take)} MOVN은 아직 변환하지 못했습니다. '승인 설정'의 '다시 승인하기 (무제한)'를 한 번 누르면 ${ROUND_WORDS}에서 변환합니다.`,
+      });
       return;
     }
     await resultScreen("켜졌습니다", result.receipts, { note: turnedOnNote({ short, take: nextTake(plan.state).take, movn: plan.state.movn }) });
