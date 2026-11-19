@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-PwhsSG+jT3YnM/OMES3IC3HlviZBmRWX0OcLTRBdM/0='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-P3Dzn/WLr8WT2VlvlaA/ijjMOdz1iBNhZXCDeabFqtY='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -5285,6 +5285,29 @@ function androidAppLink(link) {
 }
 
 /**
+ * What the connect screens advise about the browser. Chrome on Android was seen connecting on
+ * a paper wallet owner's Galaxy and on an emulator; Samsung Internet on the same Galaxy was not
+ * (Trust Wallet answered with its error notice, 2026-11-19, cause unknown). "samsung" for Samsung
+ * Internet, "android" for any other Android browser, null elsewhere (nothing checked there).
+ */
+function browserAdvice(userAgent) {
+  const ua = String(userAgent ?? "");
+  if (!isAndroid(ua)) return null;
+  return /\bSamsungBrowser\//.test(ua) ? "samsung" : "android";
+}
+
+/** This page in Chrome, from another Android browser: Android's "intent" form with Chrome named. */
+function chromeOpenLink(pageUrl) {
+  try {
+    const u = new URL(String(pageUrl ?? ""));
+    if (u.protocol !== "https:") return null;
+    return `intent://${u.host}${u.pathname}${u.search}#Intent;scheme=https;package=com.android.chrome;end`;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The page's domain alone (scheme and host, no path), as the relay's Verify compares it with
  * the domain the connection really comes from and with the one listed for the project id.
  */
@@ -5438,7 +5461,7 @@ function createWcWallet({ lib, projectId, pageUrl, backLink = "", android = fals
   };
 }
 
-return { WC_PROJECT_ID, WC_RELAY, trustWcLink, isAndroid, androidAppLink, originOf, browserBackLink, pairsInOneVisit, sessionAccounts, createWcWallet };
+return { WC_PROJECT_ID, WC_RELAY, trustWcLink, isAndroid, androidAppLink, browserAdvice, chromeOpenLink, originOf, browserBackLink, pairsInOneVisit, sessionAccounts, createWcWallet };
 })();
 __m["web/src/lib/mine.mjs"] = (() => {
 // The one thing the page keeps in the browser: the public address of the paper wallet
@@ -6177,7 +6200,7 @@ const { describeCall } = __m["web/src/lib/describe.mjs"];
 const { CHANGE_GAS_MAX, approveCall, harvestSelfCall, prepareCall, setHarvesterCall, setRecipientCall, unregisterCall } = __m["web/src/lib/txs.mjs"];
 const { receiptOf, walletSender } = __m["web/src/lib/send.mjs"];
 const { connectOnBsc, connectWallet, walletAccounts, describeWallets, findWallet, hasOtherWallet, isUserRejection, TRUST_INSTALL_LINK, trustOpenLink, watchWallets } = __m["web/src/lib/wallet.mjs"];
-const { browserBackLink, createWcWallet, isAndroid, pairsInOneVisit, trustWcLink, WC_PROJECT_ID } = __m["web/src/lib/wc.mjs"];
+const { browserAdvice, browserBackLink, chromeOpenLink, createWcWallet, isAndroid, pairsInOneVisit, trustWcLink, WC_PROJECT_ID } = __m["web/src/lib/wc.mjs"];
 const { browserMine } = __m["web/src/lib/mine.mjs"];
 const { forAddressStep, looksLikeKey, parseAddressText, parseQrText, KEY_REFUSED_MESSAGE } = __m["web/src/lib/qr-text.mjs"];
 const { forbiddenRecipients } = __m["web/src/lib/inputs.mjs"];
@@ -6541,10 +6564,25 @@ function mountOwner(doc, deps = {}) {
   /** From an ordinary browser: the app comes up, asks "connect?", and the page goes on by itself. */
   function wcButton() {
     return [
+      browserNote(),
       button("wc-connect", "지갑 연결 (Trust Wallet)", () => wcConnect().catch(showError), { strong: true }),
       e("p", { class: "muted small center", text: "Trust Wallet 앱이 떠서 연결을 묻습니다. '연결'을 누르고 이 화면으로 돌아오면 내 종이지갑이 나옵니다. 개인키는 묻지 않습니다." }),
       e("a", { role: "link-install", class: "btn", href: TRUST_INSTALL_LINK, text: "Trust Wallet이 없으면: 설치하기" }),
     ];
+  }
+
+  /** The recommended browser, at the top of the connect screens (Android only: nothing else was checked). */
+  function browserNote() {
+    const advice = browserAdvice(userAgent());
+    if (advice === "samsung") {
+      const chrome = chromeOpenLink(pageUrl());
+      return [
+        e("p", { class: "warn", role: "browser-note", text: "삼성 인터넷에서는 지갑 연결이 안 되는 경우가 있습니다. Chrome(크롬) 앱으로 이 페이지를 열어 주세요." }),
+        chrome ? e("a", { role: "open-chrome", class: "btn", href: chrome, sameTab: true, text: "Chrome으로 이 페이지 열기" }) : null,
+      ];
+    }
+    if (advice === "android") return e("p", { class: "muted small center", role: "browser-note", text: "권장 환경: Chrome(크롬) 브라우저 + Trust Wallet 최신판" });
+    return null;
   }
 
   function wcScreen(uri, cancel) {
@@ -6553,6 +6591,7 @@ function mountOwner(doc, deps = {}) {
     screen([
       art(doc, "ill-phone", "hero"),
       e("h2", { class: "center", role: "wc-title", text: "Trust Wallet으로 연결하기" }),
+      browserNote(),
       // On the phone the app is one tap away, in this tab. On a PC there is no app to open: the phone scans.
       phone ? e("a", { role: "wc-open", class: "btn strong", href: trustWcLink(uri, userAgent()), sameTab: true, text: "이 폰의 Trust Wallet 앱 열기" }) : null,
       phone ? e("p", { class: "muted small center", text: "앱에서 종이지갑을 고르고 '연결'을 누르세요. 앱은 저절로 닫히지 않습니다. " + (onIphone() ? "화면 맨 위 왼쪽의 '◀ Safari'(돌아가기)를 누르거나, 브라우저를 직접 다시 열어 이 화면으로 돌아오세요." : "폰의 '뒤로' 단추를 누르거나, 브라우저를 직접 다시 열어 이 화면으로 돌아오세요.") }) : null,
