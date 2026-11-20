@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-ZuZOwsZ4coXCde86QRg7Z+ux8LYm98W3x6W5T5Bnxhg='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-TB5zoHUpWk7zv787me8eJp6gq6KMvY3kZE4Lvj0d8kI='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -3033,6 +3033,12 @@ const REGISTER_GAS_NO_SIM = 600_000n;
 /** A gas limit is the estimate × 13 / 10, up to the cap above. */
 const GAS_HEADROOM_NUM = 13n;
 const GAS_HEADROOM_DEN = 10n;
+/**
+ * The highest gas price the page asks a wallet to sign at: the contract's MAX_GAS_PRICE
+ * (3 gwei; BSC is usually about 0.05). The price comes from one RPC, which may lie
+ * (2026-11-20 security review): above this nothing is signed.
+ */
+const MAX_SEND_GAS_PRICE = 3_000_000_000n;
 
 /** An application older than this is stale (the operator refuses it). */
 const STALE_APP_MS = 24 * HOUR;
@@ -3070,7 +3076,7 @@ const MIN_REGISTER_MOVN = MOVN;
 const APPROVE_PLENTY_MOVN = 10_000n * MOVN;
 const UINT96_MAX = 2n ** 96n - 1n;
 
-return { MOVN, FLOOR_PER_MILLE, APPROVE_GAS_MAX, REGISTER_GAS_MAX, REAPPROVE_GAS, HARVEST_GAS_MAX, REGISTER_GAS_NO_SIM, GAS_HEADROOM_NUM, GAS_HEADROOM_DEN, STALE_APP_MS, STALL_MS, ADMIN_STALE_MS, HISTORY_WINDOW_MS, LOG_CHUNK, LOG_MIN_CHUNK, LOG_MAX_REQUESTS, LAG_BLOCKS, RPC_TIMEOUT_MS, LIST_SINCE_MS, BOX_MAX_BYTES, DEFAULT_MAX_MOVN, MIN_REGISTER_MOVN, APPROVE_PLENTY_MOVN, UINT96_MAX };
+return { MOVN, FLOOR_PER_MILLE, APPROVE_GAS_MAX, REGISTER_GAS_MAX, REAPPROVE_GAS, HARVEST_GAS_MAX, REGISTER_GAS_NO_SIM, GAS_HEADROOM_NUM, GAS_HEADROOM_DEN, MAX_SEND_GAS_PRICE, STALE_APP_MS, STALL_MS, ADMIN_STALE_MS, HISTORY_WINDOW_MS, LOG_CHUNK, LOG_MIN_CHUNK, LOG_MAX_REQUESTS, LAG_BLOCKS, RPC_TIMEOUT_MS, LIST_SINCE_MS, BOX_MAX_BYTES, DEFAULT_MAX_MOVN, MIN_REGISTER_MOVN, APPROVE_PLENTY_MOVN, UINT96_MAX };
 })();
 __m["web/src/lib/rpc.mjs"] = (() => {
 // The page's JSON-RPC pool: a list of public BSC RPCs, tried in order, with the
@@ -3230,13 +3236,19 @@ function createRpcPool({ urls, fetchImpl = fetch, timeoutMs = RPC_TIMEOUT_MS, no
       }),
     );
     const onChain = answers.filter((a) => !a.why && a.chain === 56);
-    const head = onChain.reduce((m, a) => (a.head > m ? a.head : m), 0);
-    const usable = onChain.filter((a) => a.head >= head - LAG_BLOCKS);
+    // The reference is the middle head (the higher of the two middle ones), not the highest:
+    // one node that claims a block far ahead cannot make the others look lagging and become
+    // the only node read (2026-11-20 security review). Far behind it: lag; far ahead: ahead.
+    const sortedHeads = onChain.map((a) => a.head).sort((x, y) => x - y);
+    const ref = sortedHeads.length ? sortedHeads[sortedHeads.length >> 1] : 0;
+    const whyOf = (a) => a.why ?? (a.chain !== 56 ? "chain" : a.head < ref - LAG_BLOCKS ? "lag" : a.head > ref + LAG_BLOCKS ? "ahead" : null);
+    const usable = onChain.filter((a) => whyOf(a) === null);
+    const head = usable.reduce((m, a) => (a.head > m ? a.head : m), 0);
     const dropped = answers
-      .filter((a) => a.why || a.chain !== 56 || a.head < head - LAG_BLOCKS)
+      .filter((a) => whyOf(a) !== null)
       .map((a) => ({
         url: a.url,
-        why: a.why ?? (a.chain !== 56 ? "chain" : "lag"),
+        why: whyOf(a),
         ...(a.message && { message: a.message }),
       }));
     const readBlock = usable.reduce((m, a) => (a.head < m ? a.head : m), Infinity);
@@ -3865,7 +3877,7 @@ __m["web/src/lib/txs.mjs"] = (() => {
 // signs. Every card transaction is legacy type 0 at the chain's gas price.
 const { getAddress, toQuantity } = globalThis.ethers;
 const { CARD_HARVEST, ERC20 } = __m["web/src/lib/abi.mjs"];
-const { APPROVE_GAS_MAX, GAS_HEADROOM_DEN, GAS_HEADROOM_NUM, HARVEST_GAS_MAX, REGISTER_GAS_MAX } = __m["web/src/lib/params.mjs"];
+const { APPROVE_GAS_MAX, GAS_HEADROOM_DEN, GAS_HEADROOM_NUM, HARVEST_GAS_MAX, MAX_SEND_GAS_PRICE, REGISTER_GAS_MAX } = __m["web/src/lib/params.mjs"];
 
 /** A change call's gas cap: the contract's setters use far less. */
 const CHANGE_GAS_MAX = 200_000n;
@@ -3940,6 +3952,8 @@ function harvestSelfCall(chain, card, fee, tickSpacing, minWbmbOut) {
 async function prepareCall(ctx, card, call, { gasPrice, nonce, gasLimit, cap, pricedEstimate = false } = {}) {
   const from = getAddress(card);
   const price = gasPrice ?? (await ctx.gasPrice());
+  if (typeof price !== "bigint" || price <= 0n || price > MAX_SEND_GAS_PRICE)
+    throw new Error(`가스 값이 너무 높습니다(${price} wei · 상한 ${MAX_SEND_GAS_PRICE} wei = 3 gwei). 아무것도 서명하지 않았습니다. 잠시 뒤 다시 해 주세요.`);
   const limitCap = cap ?? CAP_OF[call.kind] ?? CHANGE_GAS_MAX;
   let limit = gasLimit;
   if (limit === undefined) {
@@ -5045,9 +5059,10 @@ return { receiptOf, walletSender };
 __m["web/src/lib/wallet.mjs"] = (() => {
 // The wallet app's side of the page: finding the provider a wallet app's browser
 // puts on the page (EIP-1193), connecting to it and getting it onto chain 56. The
-// page asks the wallet for three things only — its accounts, its chain, and to
-// send a transaction the person confirms in the app. It never asks for a key, a
-// recovery phrase or a signature over text.
+// page asks the wallet for four things only — its accounts, its chain, to send a
+// transaction the person confirms in the app, and (for the two applications: gas
+// first and re-approve gas) a signature over a text that moves nothing. It never
+// asks for a key or a recovery phrase.
 
 const BSC_CHAIN_ID = 56;
 const BSC_HEX = "0x38";
@@ -5923,6 +5938,8 @@ function appItemShapeError(item) {
   // ":reapprove" ends the id of a re-approve row and of no other.
   if (Boolean(m[3]) !== (item.kind === REAPPROVE_KIND)) return "bad-id";
   if (typeof at !== "string" || !ISO.test(at) || !Number.isFinite(Date.parse(at))) return "bad-at";
+  // The id's date is the UTC day of `at`: a signed row cannot be reposted under other ids.
+  if (m[2] !== new Date(Date.parse(at)).toISOString().slice(0, 10)) return "bad-id";
   // The card's signed text: "gas first" or "re-approve gas".
   return advanceShapeError(item);
 }
