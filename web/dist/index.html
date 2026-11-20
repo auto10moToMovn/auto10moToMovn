@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-JGSDNsTJs1DDdoxt5ihJ8z92K2Y37adh+BKqTKUTvwc='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-ha7c7KcDI/lcpcZLoHmqSgzp0iRSDCcMUR4f7jNgs6U='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -3660,9 +3660,37 @@ async function readCardChecked(ctx, card) {
 }
 
 /**
+ * The operator's wallets in order: `operator` (the page's pressing wallet, a root) and the
+ * wallets it hands the role on to with setSuccessor, at most MAX_SUCCESSOR_HOPS of them (a
+ * loop stops at the first repeat). null when the chain cannot be read.
+ * @returns {Promise<string[]|null>}
+ */
+async function operatorChain(ctx, operator, k = K, blockTag = null) {
+  const out = [getAddress(operator)];
+  try {
+    const h = await ctx.rpc.heads();
+    const where = h.usable[0];
+    if (!where) return null;
+    const tag = toQuantity(blockTag ?? h.readBlock);
+    let who = out[0];
+    for (let hops = 0; hops < k.MAX_SUCCESSOR_HOPS; hops++) {
+      const raw = await ctx.rpc.sendTo(where, "eth_call", [{ to: ctx.chain.contract, data: CARD_HARVEST.encodeFunctionData("successor", [who]) }, tag]);
+      who = getAddress(CARD_HARVEST.decodeFunctionResult("successor", raw)[0]);
+      if (/^0x0{40}$/i.test(who) || out.includes(who)) break;
+      out.push(who);
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Whether the operator may press this paper wallet, as the contract's `_isHarvester` decides:
  * its pressing wallet is `operator`, or hands on to it through `successor` within
- * MAX_SUCCESSOR_HOPS hops. A wallet that is not on, or no operator to compare with, is true
+ * MAX_SUCCESSOR_HOPS hops — or is one of the wallets `operator` hands on to (a root's working
+ * key: the operator presses it all the same; after the root hands on to a new key, a wallet
+ * naming the old one is not, and gets the entrust button). A wallet that is not on, or no operator to compare with, is true
  * (nothing to hand over); a wallet pressing for itself is false; a read that fails is null —
  * the page then offers nothing rather than a paid change it is not sure is needed.
  * @returns {Promise<boolean|null>}
@@ -3673,6 +3701,10 @@ async function entrustedTo(ctx, state, operator, k = K) {
   let harvester = getAddress(state.harvester);
   if (harvester === target) return true;
   if (harvester === getAddress(state.card)) return false;
+  // A key the operator's pressing wallet (a root) hands on to presses for the operator too.
+  const chain = await operatorChain(ctx, target, k, state.blockNumber ?? null);
+  if (chain === null) return null;
+  if (chain.includes(harvester)) return true;
   try {
     const h = await ctx.rpc.heads();
     const where = h.usable[0];
@@ -3706,7 +3738,7 @@ function nextTake(state, k = K) {
   return { take, ok: missing.length === 0, missing };
 }
 
-return { readCard, readCardChecked, entrustedTo, nextTake };
+return { readCard, readCardChecked, operatorChain, entrustedTo, nextTake };
 })();
 __m["web/src/lib/history.mjs"] = (() => {
 // A card's recent history, read inside a bounded window: the Harvested events
@@ -5849,12 +5881,21 @@ async function fundedMark({ card, contract, at, signer }) {
 }
 
 /** True if `mark` says `card`'s gas went in and is signed by `operator` for `contract`. */
+/**
+ * True if `signer` is the operator: `operator` is one address, or the operator's wallets in
+ * order (the page's pressing wallet, a root, and the keys it hands on to with setSuccessor).
+ */
+function isOperator(signer, operator) {
+  const list = Array.isArray(operator) ? operator : [operator];
+  return list.some((o) => typeof o === "string" && isAddress(o) && getAddress(o) === signer);
+}
+
 function fundedBy(mark, { card, contract, operator }) {
   try {
     if (mark?.kind !== FUNDED_KIND || typeof mark.sig !== "string" || !SIG.test(mark.sig)) return false;
     if (typeof mark.at !== "string" || !ISO.test(mark.at)) return false;
     if (!isAddress(mark.card) || getAddress(mark.card) !== getAddress(card)) return false;
-    return verifyMessage(fundedText({ card: mark.card, contract, at: mark.at }), mark.sig) === getAddress(operator);
+    return isOperator(verifyMessage(fundedText({ card: mark.card, contract, at: mark.at }), mark.sig), operator);
   } catch {
     return false;
   }
@@ -5890,7 +5931,7 @@ function rejectedBy(mark, { card, app, contract, operator }) {
     if (typeof mark.reason !== "string" || !REASON.test(mark.reason)) return false;
     if (typeof mark.app !== "string" || mark.app !== app) return false;
     if (!isAddress(mark.card) || getAddress(mark.card) !== getAddress(card)) return false;
-    return verifyMessage(rejectedText({ card: mark.card, app: mark.app, reason: mark.reason, contract, at: mark.at }), mark.sig) === getAddress(operator);
+    return isOperator(verifyMessage(rejectedText({ card: mark.card, app: mark.app, reason: mark.reason, contract, at: mark.at }), mark.sig), operator);
   } catch {
     return false;
   }
@@ -6259,7 +6300,7 @@ __m["web/src/owner.mjs"] = (() => {
 const { MaxUint256, ZeroAddress, getAddress, hexlify, toUtf8Bytes } = globalThis.ethers;
 const { art, h, isFramed, rowsTable } = __m["web/src/lib/dom.mjs"];
 const { createPageCtx } = __m["web/src/lib/ctx.mjs"];
-const { entrustedTo, nextTake, readCardChecked } = __m["web/src/lib/card.mjs"];
+const { entrustedTo, nextTake, operatorChain, readCardChecked } = __m["web/src/lib/card.mjs"];
 const { RpcDownError } = __m["web/src/lib/rpc.mjs"];
 const { cardHistory } = __m["web/src/lib/history.mjs"];
 const { stallState } = __m["web/src/lib/stall.mjs"];
@@ -6406,6 +6447,9 @@ function mountOwner(doc, deps = {}) {
     state: null,
     checkedBy: 2,
     defaultHarvester: null,
+    // The operator's wallets: the pressing wallet and the keys it hands on to (card.mjs
+    // operatorChain) — whose marks count, and who counts as the operator. null = not read yet.
+    operators: null,
     // Whether the operator may press the open wallet (card.mjs entrustedTo): null = not known.
     entrusted: true,
     account: null,
@@ -6517,6 +6561,7 @@ function mountOwner(doc, deps = {}) {
       if (st.defaultHarvester) ctx.boxUrl = config.boxUrl;
     } catch {
       st.defaultHarvester = null;
+      st.operators = null;
     }
   }
 
@@ -6906,6 +6951,7 @@ function mountOwner(doc, deps = {}) {
     const { state, checkedBy } = await readCardChecked(ctx, address);
     await configSettled();
     const entrusted = await entrustedTo(ctx, state, st.defaultHarvester);
+    await refreshOperators();
     const gasPrice = await ctx.gasPrice();
     const change = CHANGE_GAS_MAX * gasPrice;
     const { take } = nextTake(state);
@@ -7060,7 +7106,7 @@ function mountOwner(doc, deps = {}) {
       const bnb = /BNB/.test(why);
       // Too little BNB to approve again, on a wallet handed to this page's operator: the
       // operator gives the gas of one approve, once (2026-11-17: "수수료없이도 진행이 가능하게").
-      if (id === "approve" && bnb && ctx.boxUrl && st.defaultHarvester && state.registered && lower(state.harvester) === lower(st.defaultHarvester)) {
+      if (id === "approve" && bnb && ctx.boxUrl && st.defaultHarvester && state.registered && operatorWallets().some((a) => lower(a) === lower(state.harvester))) {
         action(flowReapproveGas).catch(showError);
         return;
       }
@@ -7514,7 +7560,19 @@ function mountOwner(doc, deps = {}) {
     });
   }
 
-  const advanceOpts = () => ({ fetchImpl: ctx.fetchImpl, contract: ctx.chain.contract, operator: st.defaultHarvester });
+  /** The operator's wallets as known now: the chain read, or the pressing wallet alone until then. */
+  const operatorWallets = () => (st.operators?.length ? st.operators : st.defaultHarvester ? [st.defaultHarvester] : []);
+  /** Reads the operator's wallets again (a root and the keys it hands on to); a failed read keeps what was known. */
+  async function refreshOperators() {
+    if (!st.defaultHarvester) return;
+    const chain = await operatorChain(ctx, st.defaultHarvester);
+    if (chain) st.operators = chain;
+  }
+  // A mark counts when one of the operator's wallets signed it (the key that put the BNB in).
+  const advanceOpts = async () => {
+    if (!st.operators) await refreshOperators();
+    return { fetchImpl: ctx.fetchImpl, contract: ctx.chain.contract, operator: operatorWallets() };
+  };
 
   // The way through the operator's gas, one direction (operator, 2026-11-18: "서명하기 페이지 전에 첫
   // 수수료 지급중 페이지가 있어야함 · 완료가 되어야 서명하는것으로"): no transaction is signed before
@@ -7580,7 +7638,7 @@ function mountOwner(doc, deps = {}) {
       const look = async () => {
         if (stop || st.stopped) return;
         try {
-          const advance = await readAdvance(ctx.boxUrl, st.card, advanceOpts());
+          const advance = await readAdvance(ctx.boxUrl, st.card, await advanceOpts());
           if (advance?.rejected) return finish(confirming ? null : { rejected: advance.rejected });
           const bnb = BigInt(await ctx.rpc.send("eth_getBalance", [st.card, "latest"]));
           if (bnb >= plan.directNeedWei && advance?.funded) return finish(true);
@@ -7605,7 +7663,7 @@ function mountOwner(doc, deps = {}) {
    */
   async function flowAdvance(plan) {
     // Applied already (today or earlier, still waiting): straight back to waiting.
-    const before = await work(() => readAdvance(ctx.boxUrl, st.card, advanceOpts()));
+    const before = await work(async () => readAdvance(ctx.boxUrl, st.card, await advanceOpts()));
     // (An application the operator turned down as too old is answered by a new one, below.)
     if (before?.applied && before.rejected !== "stale") return afterApplying(plan, before.rejected);
     const amount = (APPROVE_GAS_MAX + REGISTER_GAS_MAX) * plan.gasPrice;
@@ -8007,7 +8065,7 @@ function mountOwner(doc, deps = {}) {
     let appliedForGas = false;
     let gift = false;
     if (ownBefore === null && ctx.boxUrl && st.defaultHarvester) {
-      const advance = await work(() => readAdvance(ctx.boxUrl, st.card, advanceOpts()));
+      const advance = await work(async () => readAdvance(ctx.boxUrl, st.card, await advanceOpts()));
       if (advance === null) {
         await messageScreen("지금은 켤 수 없습니다", "신청함이 답하지 않아, 이 종이지갑이 첫 수수료(가스값)를 받았는지 확인하지 못했습니다. 잠시 뒤 다시 해 주세요.");
         return;
@@ -8306,6 +8364,7 @@ function mountOwner(doc, deps = {}) {
   }
   configReady = initConfig().catch(() => {
     st.defaultHarvester = null;
+    st.operators = null;
   });
 
   return {

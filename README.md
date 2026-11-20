@@ -31,7 +31,7 @@ sha256sum index.html                    # 리눅스 · macOS (macOS에 없으면
 certutil -hashfile index.html SHA256    # Windows 명령 프롬프트
 ```
 
-- `web/dist/index.html` sha256: 54b83e351c35a710895ce4ebd5c51e0f99cbd3cf14c83511870fedbcc5184d96
+- `web/dist/index.html` sha256: 544aaa0ebca4b600b61672daf0d6f6754720759d3cc19dbb4acd8d0adda3d209
 
 ## 계약
 
