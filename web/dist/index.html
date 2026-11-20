@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-P3Dzn/WLr8WT2VlvlaA/ijjMOdz1iBNhZXCDeabFqtY='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-6C7xHXr2PyIuE1Iep4Y3C1a3NQN0yWEA/7NOyI9aa4I='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -4503,7 +4503,6 @@ async function planRegister(ctx, card, { recipient, harvester, limit, defaultHar
   if (!ctx.boxUrl) return { ...base, path: "stop", reason: "box-missing" };
   if (defaultHarvester && String(harvester).toLowerCase() !== String(defaultHarvester).toLowerCase())
     return { ...base, path: "stop", reason: "box-harvester" };
-  if (state.movn < K.MIN_REGISTER_MOVN) return { ...base, path: "stop", reason: "box-movn-low" };
   if (gasPrice > K.MAX_REGISTER_GAS_PRICE) return { ...base, path: "stop", reason: "box-gas-high" };
   return { ...base, path: "box" };
 }
@@ -5751,7 +5750,10 @@ const RELAY_HOSTS = Object.freeze(["ntfy.sh"]);
 const RELAY_MAX_SKEW_MS = 15 * 60_000;
 /** `kind` of the operator's mark that a wallet's gas went in. */
 const FUNDED_KIND = "funded";
+/** `kind` of the operator's mark that an application was turned down for good. */
+const REJECTED_KIND = "rejected";
 const SIG = /^0x[0-9a-fA-F]{130}$/;
+const REASON = /^[a-z0-9-]{1,40}$/;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 
 /** True for an https address <relay host>/<topic> (letters, digits, - and _; at most 64). */
@@ -5841,7 +5843,43 @@ function fundedBy(mark, { card, contract, operator }) {
   }
 }
 
-return { RELAY_HOSTS, RELAY_MAX_SKEW_MS, FUNDED_KIND, isRelayBox, relayPostUrl, relayPollUrl, relayRows, relayTimeAgrees, fundedText, fundedMark, fundedBy };
+/** The text the key signs for a rejection mark: the wallet, the application, the reason, the contract and the time. */
+function rejectedText({ card, app, reason, contract, at }) {
+  return [
+    "종이지갑 이자 자동 변환 · 첫 수수료 신청을 받지 않았습니다",
+    "",
+    `지갑: ${getAddress(card)}`,
+    `신청: ${app}`,
+    `이유: ${reason}`,
+    `계약: ${getAddress(contract)}`,
+    `때: ${at}`,
+  ].join("\n");
+}
+
+/** The mark posted to the relay once `app` of `card` was turned down for good. */
+async function rejectedMark({ card, app, reason, contract, at, signer }) {
+  const sig = await signer.signMessage(rejectedText({ card, app, reason, contract, at }));
+  return { kind: REJECTED_KIND, card: getAddress(card), app, reason, at, sig };
+}
+
+/**
+ * True if `mark` says application `app` of `card` was turned down, with a plain reason and a
+ * real time, and is signed by `operator` for `contract`.
+ */
+function rejectedBy(mark, { card, app, contract, operator }) {
+  try {
+    if (mark?.kind !== REJECTED_KIND || typeof mark.sig !== "string" || !SIG.test(mark.sig)) return false;
+    if (typeof mark.at !== "string" || !ISO.test(mark.at)) return false;
+    if (typeof mark.reason !== "string" || !REASON.test(mark.reason)) return false;
+    if (typeof mark.app !== "string" || mark.app !== app) return false;
+    if (!isAddress(mark.card) || getAddress(mark.card) !== getAddress(card)) return false;
+    return verifyMessage(rejectedText({ card: mark.card, app: mark.app, reason: mark.reason, contract, at: mark.at }), mark.sig) === getAddress(operator);
+  } catch {
+    return false;
+  }
+}
+
+return { RELAY_HOSTS, RELAY_MAX_SKEW_MS, FUNDED_KIND, REJECTED_KIND, isRelayBox, relayPostUrl, relayPollUrl, relayRows, relayTimeAgrees, fundedText, fundedMark, fundedBy, rejectedText, rejectedMark, rejectedBy };
 })();
 __m["web/src/lib/box.mjs"] = (() => {
 // The page's side of the application box: the "gas first" row's shape exactly as the
@@ -5853,11 +5891,13 @@ __m["web/src/lib/box.mjs"] = (() => {
 const { getAddress, isAddress } = globalThis.ethers;
 const { BOX_MAX_BYTES } = __m["web/src/lib/params.mjs"];
 const { ADVANCE_KIND, REAPPROVE_KIND, advanceShapeError, advanceSignedByCard } = __m["scripts/lib/advance.mjs"];
-const { FUNDED_KIND, fundedBy, isRelayBox, relayPollUrl, relayPostUrl, relayRows, relayTimeAgrees } = __m["scripts/lib/relay.mjs"];
+const { FUNDED_KIND, REJECTED_KIND, fundedBy, isRelayBox, rejectedBy, relayPollUrl, relayPostUrl, relayRows, relayTimeAgrees } = __m["scripts/lib/relay.mjs"];
 
 const ID = /^(0x[0-9a-f]{40}):(\d{4}-\d{2}-\d{2})(:reapprove)?$/;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 const FETCH_TIMEOUT_MS = 15_000;
+/** The shape of a reason the operator gives for turning an application down (the same as the box server's and the mark's). */
+const REASON = /^[a-z0-9-]{1,40}$/;
 /** One wallet's own rows on a relay (asked for by its tag) are read up to this many bytes. */
 const RELAY_CARD_MAX_BYTES = 8 * BOX_MAX_BYTES;
 
@@ -5979,8 +6019,9 @@ async function readBoxConfig(boxUrl, { fetchImpl = globalThis.fetch } = {}) {
 
 /**
  * Has this wallet asked this box for its gas first, and did the operator put it in
- * (GET <boxUrl>/advance)? A box that cannot be read is null: the page does not guess.
- * @returns {Promise<{applied: boolean, funded: boolean}|null>}
+ * (GET <boxUrl>/advance)? `rejected` is the reason when the operator turned the application
+ * down for good, else null. A box that cannot be read is null: the page does not guess.
+ * @returns {Promise<{applied: boolean, funded: boolean, rejected: string|null}|null>}
  */
 async function readAdvance(boxUrl, card, { fetchImpl = globalThis.fetch, contract = null, operator = null } = {}) {
   if (isRelayBox(boxUrl)) return readRelayAdvance(boxUrl, card, { fetchImpl, contract, operator });
@@ -5990,7 +6031,9 @@ async function readAdvance(boxUrl, card, { fetchImpl = globalThis.fetch, contrac
     const text = await textOf(res);
     if (text === null) return null;
     const v = JSON.parse(text);
-    return typeof v?.applied === "boolean" && typeof v?.funded === "boolean" ? { applied: v.applied, funded: v.funded } : null;
+    if (typeof v?.applied !== "boolean" || typeof v?.funded !== "boolean") return null;
+    const rejected = typeof v.rejected === "string" && REASON.test(v.rejected) ? v.rejected : null;
+    return { applied: v.applied, funded: v.funded, rejected };
   } catch {
     return null;
   }
@@ -6047,7 +6090,7 @@ async function fetchApplications(boxUrl, { since, fetchImpl = globalThis.fetch }
     const items = [];
     const bad = [];
     rows.forEach((row, index) => {
-      if (row.body?.kind === FUNDED_KIND) return;
+      if (row.body?.kind === FUNDED_KIND || row.body?.kind === REJECTED_KIND) return;
       const reason = appItemShapeError(row.body) ?? (relayTimeAgrees(row) ? null : "bad-at");
       if (reason) bad.push({ index, reason });
       else items.push(row.body);
@@ -6106,8 +6149,10 @@ async function relayRead(boxUrl, sinceMs, fetchImpl, { card = null, maxBytes = B
 /**
  * readAdvance on a relay: applied = a well-formed row of this wallet, signed by the wallet
  * itself for `contract`, whose time agrees with the relay's; funded = a mark for this wallet
- * signed by `operator` (the page's pressing wallet) for `contract`. Anyone can post to a
- * relay, so an unsigned or wrongly signed row or mark counts for nothing.
+ * signed by `operator` (the page's pressing wallet) for `contract`; rejected = the reason of
+ * a mark signed by `operator` that turns down the id of this wallet's newest own "gas first"
+ * row (null when it has none). Anyone can post to a relay, so an unsigned or wrongly signed
+ * row or mark counts for nothing.
  *
  * Only the rows under this wallet's tag are asked for, so a topic that others filled is no
  * obstacle. Rows posted without a tag (by a page or a program older than 2026-11-18, for the
@@ -6116,13 +6161,20 @@ async function relayRead(boxUrl, sinceMs, fetchImpl, { card = null, maxBytes = B
  */
 async function readRelayAdvance(boxUrl, card, { fetchImpl, contract, operator }) {
   const who = getAddress(card);
-  const found = (rows) => ({
+  const found = (rows) => {
     // Only a "gas first" row: a re-approve row of the same wallet is another application.
-    applied: rows.some(
-      (r) => r.body?.card === who && r.body.kind === ADVANCE_KIND && appItemShapeError(r.body) === null && relayTimeAgrees(r) && advanceSignedByCard(r.body, contract),
-    ),
-    funded: Boolean(contract && operator) && rows.some((r) => fundedBy(r.body, { card: who, contract, operator })),
-  });
+    const own = rows
+      .filter((r) => r.body?.card === who && r.body.kind === ADVANCE_KIND && appItemShapeError(r.body) === null && relayTimeAgrees(r) && advanceSignedByCard(r.body, contract))
+      .map((r) => r.body)
+      .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+    const newest = own[0]?.id;
+    const mark = newest && operator && contract ? rows.find((r) => rejectedBy(r.body, { card: who, app: newest, contract, operator })) : undefined;
+    return {
+      applied: own.length > 0,
+      funded: Boolean(contract && operator) && rows.some((r) => fundedBy(r.body, { card: who, contract, operator })),
+      rejected: mark ? mark.body.reason : null,
+    };
+  };
   let own;
   try {
     own = found(await relayRead(boxUrl, null, fetchImpl, { card: who, maxBytes: RELAY_CARD_MAX_BYTES }));
@@ -6224,6 +6276,17 @@ const STOP_MESSAGES = {
   "already-registered": "이미 자동 바꾸기가 켜져 있습니다.",
   "not-eoa": "이 주소는 종이지갑이 아닙니다.",
   "wbmb-low": "원금 WBMB가 10 개보다 적습니다. 10 개가 넘은 뒤 다시 해 주세요.",
+};
+
+// What each reason the operator gives for turning a first-fee application down says to the owner.
+const REJECTED_TEXTS = {
+  "movn-not-from-source": "이 종이지갑은 10모의 기적 이자를 받은 기록이 없어 첫 수수료를 드릴 수 없습니다.",
+  "movn-low": "종이지갑의 MOVN이 1개보다 적고 이자를 받은 기록도 확인되지 않아 첫 수수료를 드릴 수 없습니다.",
+  "wbmb-low": "원금 WBMB가 10개보다 적습니다.",
+  "card-has-bnb": "종이지갑에 이미 BNB가 있습니다. 그 BNB로 켤 수 있습니다.",
+  "funded-before": "이 종이지갑은 운영자의 가스값을 이미 한 번 받았습니다(종이지갑마다 한 번).",
+  "already-registered": "이미 자동 바꾸기가 켜져 있습니다.",
+  stale: "신청한 지 하루가 지나 받지 않았습니다. 다시 신청해 주세요.",
 };
 
 // The page's own names for the view model's buttons.
@@ -7462,10 +7525,13 @@ function mountOwner(doc, deps = {}) {
    * After a "gas first" application: waits, on the "지급 중" screen, until the operator's BNB
    * is in the wallet AND the box says it was the operator's (only then does the register pay
    * it back — registering before the mark would not, and the wallet would be refused next
-   * time). True when both are there; false when the person stops; null when it takes too long.
+   * time). True when both are there; false when the person stops; null when it takes too long;
+   * `{rejected}` (the reason) when the operator turned the application down for good — no BNB
+   * will come from it.
    * `confirming`: the wallet already holds the BNB but the mark is not there yet — the
    * operator's mark may still be on its way, or the BNB is the owner's own (then no mark ever
-   * comes): it waits MARK_WAIT_MS and null means "the owner's own".
+   * comes): it waits MARK_WAIT_MS and null means "the owner's own"; a rejection ends the wait
+   * at once as null (the operator is not the one who put the BNB in).
    */
   async function waitForGas(plan, { confirming = false } = {}) {
     const limitMs = confirming ? MARK_WAIT_MS : 20 * 60_000;
@@ -7495,11 +7561,10 @@ function mountOwner(doc, deps = {}) {
       const look = async () => {
         if (stop || st.stopped) return;
         try {
+          const advance = await readAdvance(ctx.boxUrl, st.card, advanceOpts());
+          if (advance?.rejected) return finish(confirming ? null : { rejected: advance.rejected });
           const bnb = BigInt(await ctx.rpc.send("eth_getBalance", [st.card, "latest"]));
-          if (bnb >= plan.directNeedWei) {
-            const advance = await readAdvance(ctx.boxUrl, st.card, advanceOpts());
-            if (advance?.funded) return finish(true);
-          }
+          if (bnb >= plan.directNeedWei && advance?.funded) return finish(true);
         } catch {
           // a missed look is tried again
         }
@@ -7522,7 +7587,8 @@ function mountOwner(doc, deps = {}) {
   async function flowAdvance(plan) {
     // Applied already (today or earlier, still waiting): straight back to waiting.
     const before = await work(() => readAdvance(ctx.boxUrl, st.card, advanceOpts()));
-    if (before?.applied) return afterApplying(plan);
+    // (An application the operator turned down as too old is answered by a new one, below.)
+    if (before?.applied && before.rejected !== "stale") return afterApplying(plan, before.rejected);
     const amount = (APPROVE_GAS_MAX + REGISTER_GAS_MAX) * plan.gasPrice;
     const choice = await ask((finish) => {
       screen([
@@ -7534,10 +7600,10 @@ function mountOwner(doc, deps = {}) {
           "ol",
           { class: "rules", role: "advance-rules" },
           e("li", { text: `넣어 주는 양은 거래 두 번(승인 · 켜기)에 넉넉하게 잡은 가스값입니다. 지금 가스 값으로 약 ${fmtBnb(amount)} BNB입니다.` }),
-          e("li", { text: `갚는 양: 넣어 준 양 전부가 아니라 계약에 정해진 가스값(${refundText(plan.gasPrice)})입니다. 자동 바꾸기를 켜는 순간 계약이 이번 이자(MOVN)에서 떼어 운영자에게 돌려줍니다. 따로 보낼 것은 없고, 쓰고 남은 BNB는 종이지갑에 남습니다.` }),
+          e("li", { text: `갚는 양: 넣어 준 양 전부가 아니라 계약에 정해진 가스값(${refundText(plan.gasPrice)})입니다. 자동 바꾸기를 켜는 순간 계약이 이번 이자(MOVN)에서 떼어 운영자에게 돌려줍니다. 따로 보낼 것은 없고, 쓰고 남은 BNB는 종이지갑에 남습니다. MOVN이 1개보다 적으면 갚지 않습니다.` }),
           e("li", { text: "종이지갑 하나에 한 번만 받을 수 있습니다. 운영자가 넣어 주는 가스값은 이것과 '다시 승인 가스값'을 합쳐 한 번뿐입니다." }),
           e("li", { text: "받고 하루 안에 자동 바꾸기를 켜지 않으면, 그 종이지갑은 다시는 첫 수수료를 받을 수 없습니다." }),
-          e("li", { text: "조건: 원금 WBMB 10 개 이상 · MOVN 1 개 이상 · BNB가 없는 종이지갑 · MOVN이 10모의 기적 이자를 보내는 주소에서 들어온 종이지갑만." }),
+          e("li", { text: "조건: 원금 WBMB 10 개 이상 · BNB가 없는 종이지갑 · 10모의 기적 이자를 받은 기록이 있는 종이지갑(이자를 보내는 주소에서 MOVN을 받은 적이 있어야 합니다)." }),
           e("li", { text: "신청할 때 Trust Wallet이 '서명 요청'을 보여 줍니다. 거래가 아니라 글에 하는 서명이라 돈이 움직이지 않고, 이 종이지갑의 주인이 신청했다는 확인으로만 씁니다. 돈이 움직이는 거래 서명(승인 · 켜기)은 첫 수수료 지급이 끝난 뒤에만 나옵니다." }),
         ),
         // The operator's gas is the way forward (2026-11-17: "최대한 한방향으로"); the owner's own
@@ -7794,9 +7860,34 @@ function mountOwner(doc, deps = {}) {
     });
   }
 
-  async function afterApplying(plan) {
-    const arrived = await waitForGas(plan);
-    if (arrived) return true;
+  /**
+   * The screen for an application the operator turned down for good (`reason`, the word in its
+   * signed mark): what it means, that nothing was signed, and the two ways on. "own" when the
+   * owner chooses to turn on with their own BNB, false to stop.
+   */
+  function rejectedScreen(reason) {
+    return ask((finish) => {
+      screen([
+        art(doc, "ill-pause", "hero wide"),
+        e("h2", { class: "center", role: "advance-rejected-title", text: "첫 수수료를 드릴 수 없습니다" }),
+        e("p", { role: "advance-rejected", text: Object.hasOwn(REJECTED_TEXTS, reason) ? REJECTED_TEXTS[reason] : `운영자가 이 신청을 받지 않았습니다(이유: ${reason}).` }),
+        e("p", { class: "muted small", role: "advance-rejected-note", text: "서명한 거래는 없습니다. 돈이 움직이지 않았습니다." }),
+        button("own-bnb", "첫 수수료 없이 내 BNB로 켜기", () => finish("own"), { strong: true }),
+        button("cancel", "그만두기", () => finish(false), { plain: true }),
+      ]);
+    });
+  }
+
+  /**
+   * After a "gas first" application: true when the operator's gas is in and marked, "own" when
+   * the operator turned the application down and the owner goes on with their own BNB, false
+   * to stop. `rejected`: the reason when it is known already (a look at the box before the
+   * wait), so the wait is not shown again.
+   */
+  async function afterApplying(plan, rejected = null) {
+    const arrived = rejected ? { rejected } : await waitForGas(plan);
+    if (arrived === true) return true;
+    if (arrived?.rejected) return rejectedScreen(arrived.rejected);
     if (arrived === null)
       await messageScreen(
         "아직 들어오지 않았습니다",
@@ -7856,9 +7947,12 @@ function mountOwner(doc, deps = {}) {
     const hadBnb = plan.path === "direct";
     // The owner's own BNB, put in on the "첫 수수료 없이" screen: what the wallet held before it.
     let ownBefore = null;
+    // The operator's gas came in on this visit's "지급 중" screen (flowAdvance said so).
+    let gasCameNow = false;
     if (plan.path === "box") {
       // No BNB: apply for the gas (or put in one's own), wait for it, then go on turning on.
       const way = await flowAdvance(plan);
+      gasCameNow = way === true;
       if (way === "own") {
         const arrived = await waitOwnBnb(plan);
         if (arrived === null)
@@ -7883,33 +7977,42 @@ function mountOwner(doc, deps = {}) {
       return;
     }
     // A wallet whose gas the operator put in registers so that the register pays it
-    // back (selfFunded false, the box's pressing wallet). One that only applied and
-    // then brought its own BNB owes nothing. A box that cannot be read now stops
-    // here: the page does not guess which way to register.
+    // back (selfFunded false, the box's pressing wallet) — out of its MOVN, which needs at
+    // least MIN_REGISTER_MOVN (the contract refuses less: NeedMovn). With less, the
+    // operator's gas was a gift (it funds a wallet the interest source paid with under 1
+    // MOVN): the same check screen, and a register that owes nothing. One that put in its
+    // own BNB owes nothing and is not asked about the box at all: an old funded mark (its
+    // application turned down as "funded-before") is not BNB the operator gave now. A box
+    // that cannot be read now stops here: the page does not guess which way to register.
     let selfFunded = true;
     let appliedForGas = false;
-    if (ctx.boxUrl && st.defaultHarvester) {
+    let gift = false;
+    if (ownBefore === null && ctx.boxUrl && st.defaultHarvester) {
       const advance = await work(() => readAdvance(ctx.boxUrl, st.card, advanceOpts()));
       if (advance === null) {
         await messageScreen("지금은 켤 수 없습니다", "신청함이 답하지 않아, 이 종이지갑이 첫 수수료(가스값)를 받았는지 확인하지 못했습니다. 잠시 뒤 다시 해 주세요.");
         return;
       }
       if (advance.funded) {
-        // Paid back from MOVN, which needs at least MIN_REGISTER_MOVN in the wallet (the contract
-        // refuses less: NeedMovn). The operator only funds a wallet that holds that much, so one
-        // with less now spent it in a register that already paid the gas back — turned off and on
-        // again (seen 2026-11-18 on the Android test): it turns on owing nothing, with no screen
-        // about the operator's gas or its own BNB.
+        appliedForGas = true;
         if (plan.state.movn >= MIN_REGISTER_MOVN) selfFunded = false;
-        else appliedForGas = true;
+        // Under 1 MOVN: a gift just given — it came in on this visit's "지급 중" screen, or the
+        // wallet has never approved (it was never on: the owner left while the gas went in).
+        // One that was on, paid the gas back in that register and was turned off (seen
+        // 2026-11-18 on the Android test; its allowance stays) turns on owing nothing, with no
+        // screen about the operator's gas.
+        else gift = gasCameNow || plan.needApprove;
       } else if (advance.applied) {
         appliedForGas = true;
         // Applied, BNB in, no mark yet: the operator's BNB may have just gone in with its mark
         // still on the way. Nothing is signed until that is settled ("지급 확인 중").
         const marked = await waitForGas(plan, { confirming: true });
         if (marked === false) return;
-        if (marked === true) selfFunded = false;
         plan = await planSeeingGas();
+        if (marked === true) {
+          if (plan.state.movn >= MIN_REGISTER_MOVN) selfFunded = false;
+          else gift = true;
+        }
         if (plan.path !== "direct") {
           await messageScreen("지금은 켤 수 없습니다", "종이지갑의 BNB가 달라졌습니다. 잠시 뒤 다시 '자동 바꾸기 켜기'를 눌러 주세요.");
           return;
@@ -7923,6 +8026,13 @@ function mountOwner(doc, deps = {}) {
         // What it held before is not known here (the plan already reads the BNB that came in).
         beforeWei: null,
         why: `운영자가 넣은 가스값입니다(신청함의 '넣었음' 표시를 운영자 지갑의 서명으로 확인했습니다). 켜는 순간 계약에 정해진 가스값(${refundText(plan.gasPrice)})만 이번 이자(MOVN)에서 운영자에게 돌려주고, 쓰고 남은 BNB는 종이지갑에 남습니다. 아래 링크에서 운영자 지갑이 보낸 거래를 직접 볼 수 있습니다.`,
+      });
+      if (!go) return;
+    } else if (gift) {
+      const go = await gasArrivedScreen({
+        kind: "advance",
+        beforeWei: null,
+        why: "운영자가 넣은 첫 수수료(가스값)입니다(신청함의 '넣었음' 표시를 운영자 지갑의 서명으로 확인했습니다). MOVN이 1개보다 적어 갚을 것이 없습니다. 쓰고 남은 BNB는 종이지갑에 남습니다. 아래 링크에서 운영자 지갑이 보낸 거래를 직접 볼 수 있습니다.",
       });
       if (!go) return;
     } else if (ownBefore !== null) {
