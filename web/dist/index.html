@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-TB5zoHUpWk7zv787me8eJp6gq6KMvY3kZE4Lvj0d8kI='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-JGSDNsTJs1DDdoxt5ihJ8z92K2Y37adh+BKqTKUTvwc='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -5384,6 +5384,8 @@ function createWcWallet({ lib, projectId, pageUrl, backLink = "", android = fals
         lib.SignClient.init({
           projectId,
           relayUrl: WC_RELAY,
+          // No usage events to the library maker's server (2026-11-20 security review): the relay is enough.
+          telemetryEnabled: false,
           metadata: { name: "10모 종이지갑 이자 바꾸기", description: "종이지갑 이자(MOVN)를 WBMB로 바꾸는 공개 도구", url: originOf(pageUrl), icons: [], ...(backLink && { redirect: { native: backLink } }) },
         }),
       )
