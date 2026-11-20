@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-6C7xHXr2PyIuE1Iep4Y3C1a3NQN0yWEA/7NOyI9aa4I='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-ZuZOwsZ4coXCde86QRg7Z+ux8LYm98W3x6W5T5Bnxhg='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -8012,6 +8012,8 @@ function mountOwner(doc, deps = {}) {
         if (marked === true) {
           if (plan.state.movn >= MIN_REGISTER_MOVN) selfFunded = false;
           else gift = true;
+          // The mark came for the BNB this visit waited on: that BNB is the operator's.
+          gasCameNow = true;
         }
         if (plan.path !== "direct") {
           await messageScreen("지금은 켤 수 없습니다", "종이지갑의 BNB가 달라졌습니다. 잠시 뒤 다시 '자동 바꾸기 켜기'를 눌러 주세요.");
@@ -8032,7 +8034,12 @@ function mountOwner(doc, deps = {}) {
       const go = await gasArrivedScreen({
         kind: "advance",
         beforeWei: null,
-        why: "운영자가 넣은 첫 수수료(가스값)입니다(신청함의 '넣었음' 표시를 운영자 지갑의 서명으로 확인했습니다). MOVN이 1개보다 적어 갚을 것이 없습니다. 쓰고 남은 BNB는 종이지갑에 남습니다. 아래 링크에서 운영자 지갑이 보낸 거래를 직접 볼 수 있습니다.",
+        // Seen come in on this visit: the operator's BNB. Otherwise only the mark is known (the
+        // owner may have left while it went in — or put in BNB of their own after an old mark),
+        // so the words say what was checked, not whose BNB is in the wallet now.
+        why: gasCameNow
+          ? "운영자가 넣은 첫 수수료(가스값)입니다(신청함의 '넣었음' 표시를 운영자 지갑의 서명으로 확인했습니다). MOVN이 1개보다 적어 갚을 것이 없습니다. 쓰고 남은 BNB는 종이지갑에 남습니다. 아래 링크에서 운영자 지갑이 보낸 거래를 직접 볼 수 있습니다."
+          : "신청함에 운영자가 이 종이지갑에 첫 수수료(가스값)를 넣었다는 '넣었음' 표시가 있습니다(운영자 지갑의 서명으로 확인했습니다). MOVN이 1개보다 적어 갚을 것이 없습니다. 지금 종이지갑에 있는 BNB로 켜고, 쓰고 남은 BNB는 종이지갑에 남습니다. 아래 링크에서 들어온 거래를 직접 볼 수 있습니다.",
       });
       if (!go) return;
     } else if (ownBefore !== null) {
