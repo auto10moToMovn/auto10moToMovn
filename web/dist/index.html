@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-ha7c7KcDI/lcpcZLoHmqSgzp0iRSDCcMUR4f7jNgs6U='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UylQUV/Smun3ohzrK2gQCBUCTXlEw9WpIkbVuQC9cDs=' 'sha256-2Jllu/lAB/MElonndV/3cvY5OeBv/IgTTTXfuz9zB2g=' 'sha256-eeyG+ChWAFsciHkFz8z8++w4Icphx/1alS+qX3ePeRw=' 'sha256-NupztXTNznM0VE/q15WbCeGCIs8RmVj0PthFtpaADgs='; style-src 'sha256-4GFpJQwhA5WezNNj3lqQuzkOH9gVo5H3KOCpvdBUwB0='; img-src data:; connect-src https: wss://relay.walletconnect.org; frame-src https://verify.walletconnect.org; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>10모 종이지갑 이자 바꾸기</title>
 <style>/* The page's whole look: the card you hold is drawn on the screen — deep green,
@@ -3013,7 +3013,7 @@ __m["web/src/lib/params.mjs"] = (() => {
 // Every number the page uses, in one place (plan: Global Constraints). MOVN and
 // WBMB amounts are bigint in the token's smallest unit, times are milliseconds.
 // The ones the operator shares are checked against scripts/operator/params.mjs;
-// the contract constants (MIN_CARD_WBMB, FEE_BPS, …) live in chain.mjs's K.
+// the contract constants (MIN_REGISTER_MOVN, FEE_BPS, …) live in chain.mjs's K.
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
@@ -3389,7 +3389,7 @@ const BSC = {
 return { BSC };
 })();
 __m["deployments/bsc.json"] = (() => {
-const value = {"network":"bsc","chainId":56,"status":"deployed","contract":"CardHarvest","address":"0xB2CC260bbCb90028B4b58A26B8f2E7212A425b9b","txHash":"0x005c41f86c7f0302cb571d308e125774aec6d3401e875204d8e643610a173b55","nonce":3,"blockNumber":134121977,"gasUsed":"2525017","gasPrice":"50000000","sentAt":"2026-11-17T12:46:37.881Z","deployedAt":"2026-11-17T12:46:38.000Z","gitCommit":"250df25443c479a7694d878a5017b1247bdbc6a2","constructorArgs":{"pm":"0x28e2Ea090877bF75740558f6BFB36A5ffeE9e9dF","movn":"0x200b63AA750c901892d4DCf82439860F9C270274","wbmb":"0x9E4c611B834672c3643D9818249366bf65ae4C86","usdt":"0x55d398326f99059fF775485246999027B3197955","feeWallet":"0x67ea8738238e443E2F05EB336db5f3Df802f76fa","gas":{"base":694000,"perCard":124000,"tailBase":162000,"tailPerCard":5000,"registerRefund":350000}},"constructorArgsEncoded":"0x00000000000000000000000028e2ea090877bf75740558f6bfb36a5ffee9e9df000000000000000000000000200b63aa750c901892d4dcf82439860f9c2702740000000000000000000000009e4c611b834672c3643d9818249366bf65ae4c8600000000000000000000000055d398326f99059ff775485246999027b319795500000000000000000000000067ea8738238e443e2f05eb336db5f3df802f76fa00000000000000000000000000000000000000000000000000000000000a96f0000000000000000000000000000000000000000000000000000000000001e46000000000000000000000000000000000000000000000000000000000000278d000000000000000000000000000000000000000000000000000000000000013880000000000000000000000000000000000000000000000000000000000055730","compiler":{"solc":"0.8.37+commit.f401782d.Emscripten.clang","optimizer":{"enabled":true,"runs":200},"viaIR":true,"evmVersion":"cancun"},"solcInput":"deployments/bsc.solc-input.json","sourceSha256":"b65588843903670d376566c498e3814f591ba4d909a3688113b287c6f79b3e2d","sourceSha256Of":"sha256 of the file content of deployments/bsc.solc-input.json (the BscScan Standard-JSON input: only the sources CardHarvest is built from)"};
+const value = {"network":"bsc","chainId":56,"status":"deployed","contract":"CardHarvest","address":"0x93ce2253f7FC34c6816e83253b294f8f651a2f14","txHash":"0x076e26252c6b00333665d85371edf97d9a83f93a55d23bd2f3efeb2caf224609","nonce":6,"blockNumber":135798008,"gasUsed":"2415752","gasPrice":"50000000","sentAt":"2026-11-26T06:22:50.988Z","deployedAt":"2026-11-26T06:22:51.000Z","gitCommit":"7d88a95bff9f335518d73af3f5a08ed9cda32ba2","constructorArgs":{"pm":"0x28e2Ea090877bF75740558f6BFB36A5ffeE9e9dF","movn":"0x200b63AA750c901892d4DCf82439860F9C270274","wbmb":"0x9E4c611B834672c3643D9818249366bf65ae4C86","usdt":"0x55d398326f99059fF775485246999027B3197955","feeWallet":"0x67ea8738238e443E2F05EB336db5f3Df802f76fa","gas":{"base":694000,"perCard":124000,"tailBase":164000,"tailPerCard":5000,"registerRefund":347000}},"constructorArgsEncoded":"0x00000000000000000000000028e2ea090877bf75740558f6bfb36a5ffee9e9df000000000000000000000000200b63aa750c901892d4dcf82439860f9c2702740000000000000000000000009e4c611b834672c3643d9818249366bf65ae4c8600000000000000000000000055d398326f99059ff775485246999027b319795500000000000000000000000067ea8738238e443e2f05eb336db5f3df802f76fa00000000000000000000000000000000000000000000000000000000000a96f0000000000000000000000000000000000000000000000000000000000001e46000000000000000000000000000000000000000000000000000000000000280a000000000000000000000000000000000000000000000000000000000000013880000000000000000000000000000000000000000000000000000000000054b78","compiler":{"solc":"0.8.37+commit.f401782d.Emscripten.clang","optimizer":{"enabled":true,"runs":200},"viaIR":true,"evmVersion":"cancun"},"solcInput":"deployments/bsc.solc-input.json","sourceSha256":"9475a2b43b633bae72da08043f2337f17391e6768d2407c3c7a7ff6f6f173f4f","sourceSha256Of":"sha256 of the file content of deployments/bsc.solc-input.json (the BscScan Standard-JSON input: only the sources CardHarvest is built from)"};
 return { value };
 })();
 __m["scripts/lib/quote.mjs"] = (() => {
@@ -3486,7 +3486,6 @@ const MAINNET = Object.freeze({
  * page itself must not cross, and a wrong one fails the test before it ships.
  */
 const K = Object.freeze({
-  MIN_CARD_WBMB: 10n * 10n ** 8n,
   MIN_REGISTER_MOVN,
   DEFAULT_MAX_MOVN_PER_ROUND: DEFAULT_MAX_MOVN,
   MAX_REGISTER_GAS_PRICE: 250_000_000n,
@@ -3578,7 +3577,6 @@ const CARD_HARVEST = new Interface([
   "error GasAllowanceTooHigh()",
   "error GasShareTooHigh(address card, uint256 share, uint256 limit)",
   "error NeedMovn(uint256 have, uint256 need)",
-  "error NeedWbmb(uint256 have, uint256 need)",
   "error NotPoolManager()",
   "error NotRegistered()",
   "error NothingToHarvest()",
@@ -3725,7 +3723,7 @@ async function entrustedTo(ctx, state, operator, k = K) {
 /**
  * What one press of may take from the card, and what still blocks it.
  * `take` is min(MOVN balance, the card's limit; 100 MOVN when unregistered).
- * @returns {{take: bigint, ok: boolean, missing: ("registered"|"allowance"|"wbmb"|"movn")[]}}
+ * @returns {{take: bigint, ok: boolean, missing: ("registered"|"allowance"|"movn")[]}}
  */
 function nextTake(state, k = K) {
   const limit = state.registered ? state.maxMovnPerRound : k.DEFAULT_MAX_MOVN_PER_ROUND;
@@ -3733,7 +3731,6 @@ function nextTake(state, k = K) {
   const missing = [];
   if (!state.registered) missing.push("registered");
   if (take > 0n && state.allowance < take) missing.push("allowance");
-  if (state.wbmb < k.MIN_CARD_WBMB) missing.push("wbmb");
   if (state.movn < MIN_REGISTER_MOVN) missing.push("movn");
   return { take, ok: missing.length === 0, missing };
 }
@@ -4165,7 +4162,6 @@ const BUTTONS = {
 const CONDITION = {
   registered: "등록되어 있지 않습니다",
   allowance: "승인 한도가 이 양보다 적습니다",
-  wbmb: "원금 WBMB가 10 개보다 적습니다",
   movn: "1 MOVN보다 적습니다",
 };
 
@@ -4220,7 +4216,6 @@ function progressOf({ state, history = null, stall = "ok", nowMs = Date.now() })
   const { take, missing } = nextTake(state);
   // What a round would take now: 1 MOVN or more (less waits for the next interest).
   const waiting = take > 0n && !missing.includes("movn");
-  if (missing.includes("wbmb")) return { warn: true, text: "변환 멈춤: 원금 WBMB가 10 개보다 적어 변환하지 않습니다." };
   if (waiting && state.allowance < take)
     return { warn: true, text: `변환 멈춤: 승인 한도가 모자라 쌓인 이자 ${fmtMovn(take)} MOVN을 변환하지 못합니다.` };
   if (waiting) {
@@ -4278,7 +4273,6 @@ function ownerView({
     {
       label: "원금 WBMB",
       value: `${fmtWbmb(state.wbmb)} WBMB`,
-      ...(state.wbmb < K.MIN_CARD_WBMB ? { warn: "10 개보다 적어 변환되지 않습니다" } : {}),
     },
     { label: "쌓인 MOVN", value: `${fmtMovn(state.movn)} MOVN` },
     { label: "종이지갑 BNB", value: `${fmtBnb(state.bnb)} BNB` },
@@ -4541,10 +4535,12 @@ async function planRegister(ctx, card, { recipient, harvester, limit, defaultHar
 
   if (state.registered) return { ...base, path: "stop", reason: "already-registered" };
   if (state.code !== "0x") return { ...base, path: "stop", reason: "not-eoa" };
-  if (state.wbmb < K.MIN_CARD_WBMB) return { ...base, path: "stop", reason: "wbmb-low" };
 
   const path = bnbCase({ bnbWei: state.bnb, directNeedWei, boxAmountWei });
   if (path !== "box") return { ...base, path };
+  // The operator's first fee needs 1 MOVN or more (operator, 2026-11-26): with less the
+  // card is asked for a little BNB instead of signing an application that is turned down.
+  if (state.movn < K.MIN_REGISTER_MOVN) return { ...base, path: "more-bnb" };
 
   if (!ctx.boxUrl) return { ...base, path: "stop", reason: "box-missing" };
   if (defaultHarvester && String(harvester).toLowerCase() !== String(defaultHarvester).toLowerCase())
@@ -4720,7 +4716,7 @@ __m["web/src/lib/rules.mjs"] = (() => {
 // from its constants. Pure: no chain, no DOM.
 const { MaxUint256 } = globalThis.ethers;
 const { K } = __m["web/src/lib/chain.mjs"];
-const { fmtBnb, fmtGwei, fmtMovn, fmtWbmb } = __m["web/src/lib/format.mjs"];
+const { fmtBnb, fmtGwei, fmtMovn } = __m["web/src/lib/format.mjs"];
 
 const commas = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
@@ -4785,7 +4781,7 @@ function rules({ limit } = {}) {
     {
       id: "skip",
       title: "이럴 때는 바뀌지 않습니다",
-      text: `원금이 ${fmtWbmb(K.MIN_CARD_WBMB)} WBMB보다 적을 때, 쌓인 이자가 ${fmtMovn(K.MIN_REGISTER_MOVN)} MOVN보다 적을 때, 승인 한도가 모자랄 때는 그 종이지갑을 건너뜁니다.`,
+      text: `쌓인 이자가 ${fmtMovn(K.MIN_REGISTER_MOVN)} MOVN보다 적을 때, 승인 한도가 모자랄 때는 그 종이지갑을 건너뜁니다.`,
     },
     {
       id: "no-owner",
@@ -6335,14 +6331,12 @@ const ADDRESS_MESSAGES = {
 const STOP_MESSAGES = {
   "already-registered": "이미 자동 바꾸기가 켜져 있습니다.",
   "not-eoa": "이 주소는 종이지갑이 아닙니다.",
-  "wbmb-low": "원금 WBMB가 10 개보다 적습니다. 10 개가 넘은 뒤 다시 해 주세요.",
 };
 
 // What each reason the operator gives for turning a first-fee application down says to the owner.
 const REJECTED_TEXTS = {
   "movn-not-from-source": "이 종이지갑은 10모의 기적 이자를 받은 기록이 없어 첫 수수료를 드릴 수 없습니다.",
-  "movn-low": "종이지갑의 MOVN이 1개보다 적고 이자를 받은 기록도 확인되지 않아 첫 수수료를 드릴 수 없습니다.",
-  "wbmb-low": "원금 WBMB가 10개보다 적습니다.",
+  "movn-low": "종이지갑의 MOVN이 1개보다 적어 첫 수수료를 드릴 수 없습니다.",
   "card-has-bnb": "종이지갑에 이미 BNB가 있습니다. 그 BNB로 켤 수 있습니다.",
   "funded-before": "이 종이지갑은 운영자의 가스값을 이미 한 번 받았습니다(종이지갑마다 한 번).",
   "already-registered": "이미 자동 바꾸기가 켜져 있습니다.",
@@ -7677,10 +7671,10 @@ function mountOwner(doc, deps = {}) {
           "ol",
           { class: "rules", role: "advance-rules" },
           e("li", { text: `넣어 주는 양은 거래 두 번(승인 · 켜기)에 넉넉하게 잡은 가스값입니다. 지금 가스 값으로 약 ${fmtBnb(amount)} BNB입니다.` }),
-          e("li", { text: `갚는 양: 넣어 준 양 전부가 아니라 계약에 정해진 가스값(${refundText(plan.gasPrice)})입니다. 자동 바꾸기를 켜는 순간 계약이 이번 이자(MOVN)에서 떼어 운영자에게 돌려줍니다. 따로 보낼 것은 없고, 쓰고 남은 BNB는 종이지갑에 남습니다. MOVN이 1개보다 적으면 갚지 않습니다.` }),
+          e("li", { text: `갚는 양: 넣어 준 양 전부가 아니라 계약에 정해진 가스값(${refundText(plan.gasPrice)})입니다. 자동 바꾸기를 켜는 순간 계약이 이번 이자(MOVN)에서 떼어 운영자에게 돌려줍니다. 따로 보낼 것은 없고, 쓰고 남은 BNB는 종이지갑에 남습니다.` }),
           e("li", { text: "종이지갑 하나에 한 번만 받을 수 있습니다. 운영자가 넣어 주는 가스값은 이것과 '다시 승인 가스값'을 합쳐 한 번뿐입니다." }),
           e("li", { text: "받고 하루 안에 자동 바꾸기를 켜지 않으면, 그 종이지갑은 다시는 첫 수수료를 받을 수 없습니다." }),
-          e("li", { text: "조건: 원금 WBMB 10 개 이상 · BNB가 없는 종이지갑 · 10모의 기적 이자를 받은 기록이 있는 종이지갑(이자를 보내는 주소에서 MOVN을 받은 적이 있어야 합니다)." }),
+          e("li", { text: "조건: BNB가 없는 종이지갑 · MOVN 1 개 이상." }),
           e("li", { text: "신청할 때 Trust Wallet이 '서명 요청'을 보여 줍니다. 거래가 아니라 글에 하는 서명이라 돈이 움직이지 않고, 이 종이지갑의 주인이 신청했다는 확인으로만 씁니다. 돈이 움직이는 거래 서명(승인 · 켜기)은 첫 수수료 지급이 끝난 뒤에만 나옵니다." }),
         ),
         // The operator's gas is the way forward (2026-11-17: "최대한 한방향으로"); the owner's own
@@ -7795,7 +7789,7 @@ function mountOwner(doc, deps = {}) {
           e("li", { text: `넣어 주는 양은 승인 한 번의 가스값입니다. 지금 가스 값으로 약 ${fmtBnb(amount)} BNB입니다.` }),
           e("li", { text: "갚을 것은 없습니다. 운영자가 냅니다." }),
           e("li", { text: "종이지갑 하나에 한 번만 받을 수 있습니다. 처음 켤 때 '첫 수수료(가스값)'를 받은 종이지갑은 받을 수 없습니다(운영자가 넣어 주는 가스값은 합쳐 한 번)." }),
-          e("li", { text: "조건: 자동 바꾸기가 켜져 있고 운영자에게 맡긴 종이지갑 · 원금 WBMB 10 개 이상 · BNB가 없는 종이지갑." }),
+          e("li", { text: "조건: 자동 바꾸기가 켜져 있고 운영자에게 맡긴 종이지갑 · BNB가 없는 종이지갑." }),
           e("li", { text: "신청할 때 Trust Wallet이 '서명 요청'을 보여 줍니다. 거래가 아니라 글에 하는 서명이라 돈이 움직이지 않습니다. 돈이 움직이는 거래 서명(다시 승인)은 가스값 지급이 끝난 뒤에만 나옵니다." }),
         ),
         button("apply", "가스값 받고 계속", () => finish("apply"), { strong: true }),

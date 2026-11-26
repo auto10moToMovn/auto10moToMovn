@@ -23,7 +23,8 @@ interface IERC20 {
 ///         WBMB through Uniswap v4. There is no owner, admin, pause or upgrade
 ///         path: every constructor argument is an immutable.
 /// @dev The card's WBMB principal never moves. Only MOVN ever leaves a card, and
-///      this contract never pulls WBMB from anyone.
+///      this contract never pulls WBMB from anyone. Any wallet may register and be
+///      converted, whatever WBMB it holds; the contract never reads a card's WBMB.
 ///      Every write function acts on `msg.sender`, which is the card itself (or, for
 ///      `setSuccessor`, the harvester itself); nobody can register or change another
 ///      card's entry.
@@ -76,8 +77,6 @@ contract CardHarvest is IUnlockCallback {
     ///         per-card limit, 100 MOVN). The limit applies to every press; for no practical
     ///         limit a card passes a large value such as `type(uint96).max`.
     uint256 public constant DEFAULT_MAX_MOVN_PER_ROUND = 100e18;
-    /// @notice Least WBMB (8 decimals) a card must hold to register and to be converted; below it the card is skipped.
-    uint256 public constant MIN_CARD_WBMB = 10e8;
     /// @notice Highest gas price the gas refund is ever computed at.
     uint256 public constant MAX_GAS_PRICE = 3 gwei;
     /// @notice Highest gas price the register refund is fixed at. Kept low so a card
@@ -147,7 +146,6 @@ contract CardHarvest is IUnlockCallback {
     error NotRegistered();
     error AlreadyRegistered();
     error NeedMovn(uint256 have, uint256 need);
-    error NeedWbmb(uint256 have, uint256 need);
     error ZeroAddress();
     error BadRecipient(address recipient);
     error NothingToHarvest();
@@ -199,8 +197,8 @@ contract CardHarvest is IUnlockCallback {
         return (GAS_BASE, GAS_PER_CARD, GAS_TAIL_BASE, GAS_TAIL_PER_CARD, GAS_REGISTER_REFUND);
     }
 
-    /// @notice Register the calling card, which must hold at least `MIN_CARD_WBMB` of WBMB
-    ///         (also when `selfFunded`), and pin the MOVN/WBMB pool it is swapped through.
+    /// @notice Register the calling card, whatever WBMB it holds, and pin the MOVN/WBMB pool
+    ///         it is swapped through.
     ///         If the card already holds MOVN and has allowed this contract to take what one
     ///         round takes (all of it, or `maxMovnPerRound` if that is less), the same
     ///         transaction also swaps that, and reverts as a whole if it pays less than
@@ -232,8 +230,6 @@ contract CardHarvest is IUnlockCallback {
         if (fee == 0 || tickSpacing == 0) revert BadPool();
         uint96 limit = _checkedLimit(maxMovnPerRound);
         recipient = _checkedRecipient(recipient);
-        uint256 w = IERC20(WBMB).balanceOf(msg.sender);
-        if (w < MIN_CARD_WBMB) revert NeedWbmb(w, MIN_CARD_WBMB);
         if (!selfFunded) {
             uint256 have = IERC20(MOVN).balanceOf(msg.sender);
             if (have < MIN_REGISTER_MOVN) revert NeedMovn(have, MIN_REGISTER_MOVN);
@@ -269,7 +265,7 @@ contract CardHarvest is IUnlockCallback {
     ///         recipient its share. Anyone may call; a card is skipped unless it is
     ///         registered, the caller is the card itself or its harvester (or a successor of
     ///         that harvester, see `setSuccessor`), the card is pinned to this `fee` and
-    ///         `tickSpacing`, it holds at least `MIN_CARD_WBMB` of WBMB, and what this round
+    ///         `tickSpacing`, and what this round
     ///         takes from it is at least `MIN_REGISTER_MOVN` of MOVN and within what it allowed
     ///         this contract to take. A round takes a card's whole MOVN balance, or its
     ///         `maxMovnPerRound` if that is less. A card listed again is skipped after its
@@ -300,7 +296,6 @@ contract CardHarvest is IUnlockCallback {
             bool asCard = msg.sender == card;
             if (!asCard && !_isHarvester(msg.sender, c.harvester)) continue;
             if (_picked(card)) continue;
-            if (IERC20(WBMB).balanceOf(card) < MIN_CARD_WBMB) continue;
             uint256 take = _take(IERC20(MOVN).balanceOf(card), c.maxMovnPerRound);
             if (take < MIN_REGISTER_MOVN || IERC20(MOVN).allowance(card, address(this)) < take) continue;
             _setPicked(card, true);
